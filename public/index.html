@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control de Productos</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Control de Productos</h1>
+      <p>Administra productos y envía notificaciones a Telegram.</p>
+    </header>
+
+    <section class="panel">
+      <form id="product-form">
+        <input type="hidden" id="product-id" />
+        <div class="row">
+          <label>Nombre</label>
+          <input id="name" type="text" required placeholder="Nombre del producto" />
+        </div>
+        <div class="row">
+          <label>SKU</label>
+          <input id="sku" type="text" placeholder="Código SKU" />
+        </div>
+        <div class="row">
+          <label>Cantidad</label>
+          <input id="quantity" type="number" min="0" value="0" />
+        </div>
+        <div class="row">
+          <label>Estado</label>
+          <select id="status">
+            <option value="activo">Activo</option>
+            <option value="agotado">Agotado</option>
+            <option value="pendiente">Pendiente</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>Notas</label>
+          <textarea id="notes" rows="2" placeholder="Notas del producto"></textarea>
+        </div>
+        <div class="actions">
+          <button type="submit">Guardar producto</button>
+          <button type="button" id="reset-button" class="secondary">Limpiar</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Productos</h2>
+      <div id="alert" class="alert hidden"></div>
+      <table id="products-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>SKU</th>
+            <th>Cant.</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
