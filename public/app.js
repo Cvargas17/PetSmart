@@ -43,6 +43,14 @@ const openGateButton = document.getElementById('open-gate-button');
 const closeGateButton = document.getElementById('close-gate-button');
 const gateStatusEl = document.getElementById('gate-status');
 
+// Telegram elements
+const telegramForm = document.getElementById('telegram-form');
+const telegramPhoneInput = document.getElementById('telegram-phone');
+const telegramBotTokenInput = document.getElementById('telegram-bot-token');
+const telegramChatIdInput = document.getElementById('telegram-chat-id');
+const telegramEnabledInput = document.getElementById('telegram-enabled');
+const telegramTestButton = document.getElementById('telegram-test-button');
+
 let selectedProductId = null;
 
 async function fetchProducts() {
@@ -83,7 +91,6 @@ function renderProducts(products) {
 
   products.forEach((product) => {
     const row = document.createElement('tr');
-    row.style.cursor = 'pointer';
     row.innerHTML = `
       <td>${product.name}</td>
       <td>${product.type || '-'}</td>
@@ -91,10 +98,9 @@ function renderProducts(products) {
       <td>${product.status}</td>
       <td>${product.notes || '-'}</td>
       <td class="actions-cell">
-        <button class="small" data-action="open-details" data-id="${product.id}" onclick="event.stopPropagation()">Ver Detalles</button>
+        <button class="small" data-action="open-details" data-id="${product.id}">Ver Detalles</button>
       </td>
     `;
-    row.addEventListener('click', () => openProductModal(product.id));
     tableBody.appendChild(row);
   });
 }
@@ -308,6 +314,64 @@ async function addModalSchedule() {
     showAlert('Error de conexión.', 'error');
   }
 }
+
+async function loadTelegramSettings() {
+  try {
+    const response = await fetch('/api/telegram/settings');
+    if (!response.ok) return;
+    const settings = await response.json();
+    telegramPhoneInput.value = settings.phone || '';
+    telegramBotTokenInput.value = settings.botToken || '';
+    telegramChatIdInput.value = settings.chatId || '';
+    telegramEnabledInput.checked = !!settings.enabled;
+  } catch (error) {
+    console.error('Error cargando configuracion Telegram:', error);
+  }
+}
+
+async function saveTelegramSettings(event) {
+  event.preventDefault();
+  const payload = {
+    phone: telegramPhoneInput.value.trim(),
+    botToken: telegramBotTokenInput.value.trim(),
+    chatId: telegramChatIdInput.value.trim(),
+    enabled: telegramEnabledInput.checked,
+  };
+
+  if (payload.enabled && (!payload.botToken || !payload.chatId)) {
+    showAlert('Bot token y Chat ID son obligatorios para activar Telegram.', 'error');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/telegram/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      showAlert(data.error || 'Error guardando Telegram.', 'error');
+      return;
+    }
+    showAlert('Configuracion de Telegram guardada.');
+  } catch (error) {
+    showAlert('Error de conexion guardando Telegram.', 'error');
+  }
+}
+
+async function testTelegramSettings() {
+  try {
+    const response = await fetch('/api/telegram/test', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) {
+      showAlert(data.error || 'Error enviando prueba de Telegram.', 'error');
+      return;
+    }
+    showAlert('Mensaje de prueba enviado a Telegram.');
+  } catch (error) {
+    showAlert('Error de conexion enviando prueba.', 'error');
+  }
 }
 
 async function handleModalSchedulesClick(e) {
@@ -350,7 +414,13 @@ form.addEventListener('submit', saveProduct);
 resetButton.addEventListener('click', resetForm);
 toggleFormButton.addEventListener('click', toggleFormSection);
 cancelFormButton.addEventListener('click', toggleFormSection);
-tableBody.addEventListener('click', () => {});
+tableBody.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-action="open-details"]');
+  if (!button) return;
+  openProductModal(Number(button.dataset.id));
+});
+telegramForm.addEventListener('submit', saveTelegramSettings);
+telegramTestButton.addEventListener('click', testTelegramSettings);
 
 // Event listeners for modal
 closeModalButton.addEventListener('click', closeProductModal);
@@ -367,6 +437,7 @@ modal.addEventListener('click', (e) => {
 });
 
 loadProducts();
+loadTelegramSettings();
 
 // ===== GATE CONTROL FUNCTIONS =====
 

@@ -60,6 +60,24 @@ header p {
   font-weight: 600;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.check-row input {
+  width: auto;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: -4px 0 16px;
+}
+
 .row input,
 .row textarea,
 .row select {
@@ -159,6 +177,10 @@ button:hover {
 }
 
 /* Modal Styles */
+.modal.hidden {
+  display: none;
+}
+
 .modal {
   display: flex;
   position: fixed;

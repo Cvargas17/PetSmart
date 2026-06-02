@@ -69,11 +69,85 @@ db.run(`
   db.run(`INSERT OR IGNORE INTO gate_state (id, state, updated_at) VALUES (1, 'closed', CURRENT_TIMESTAMP)`);
 });
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS telegram_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    phone TEXT,
+    bot_token TEXT,
+    chat_id TEXT,
+    enabled INTEGER DEFAULT 0,
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla telegram_settings:', err.message);
+  db.run(
+    `INSERT OR IGNORE INTO telegram_settings (id, phone, bot_token, chat_id, enabled, updated_at) VALUES (1, '', ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? 1 : 0]
+  );
+});
+
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
 let arduinoPort = null;
 const scheduledJobs = new Map();
 const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
+
+function runDb(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) return reject(err);
+      resolve(this);
+    });
+  });
+}
+
+function getDb(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
+async function getTelegramSettings() {
+  const row = await getDb('SELECT phone, bot_token, chat_id, enabled FROM telegram_settings WHERE id = 1');
+  return {
+    phone: row?.phone || '',
+    botToken: row?.bot_token || TELEGRAM_BOT_TOKEN,
+    chatId: row?.chat_id || TELEGRAM_CHAT_ID,
+    enabled: !!row?.enabled
+  };
+}
+
+async function sendTelegramMessage(text, { force = false } = {}) {
+  const settings = await getTelegramSettings();
+  if (!settings.botToken || !settings.chatId) {
+    if (force) throw new Error('Faltan Bot token o Chat ID de Telegram');
+    return { skipped: true };
+  }
+  if (!settings.enabled && !force) {
+    return { skipped: true };
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: settings.chatId, text })
+  });
+  const result = await response.json();
+  if (!result.ok) {
+    throw new Error(result.description || 'Error al enviar Telegram');
+  }
+  return result;
+}
+
+function notifyGateState(state, lastControl) {
+  const action = state === 'open' ? 'abierta' : 'cerrada';
+  const control = lastControl === 'schedule' ? 'schedule' : 'manual';
+  sendTelegramMessage(`Puerta ${action}\nControl: ${control}\nHora: ${new Date().toLocaleString()}`)
+    .catch((err) => console.error('Error enviando notificacion Telegram:', err.message));
+}
 
 function initSerial() {
   if (!ARDUINO_PORT || ARDUINO_PORT === 'DEMO') {
@@ -105,13 +179,18 @@ function sendGateCommand(cmd, lastControl = 'manual') {
         if (cmd === 'OPEN') {
           const lockedUntil = new Date(now.getTime() + OPEN_DURATION_MS).toISOString();
           db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`, ['open', lastControl, lockedUntil]);
+          notifyGateState('open', lastControl);
           setTimeout(() => {
             db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
               if (err) console.error('Error actualizando estado:', err.message);
+              else notifyGateState('closed', lastControl);
             });
           }, OPEN_DURATION_MS + 200);
         } else if (cmd === 'CLOSE') {
-          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl]);
+          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
+            if (err) console.error('Error actualizando estado:', err.message);
+            else notifyGateState('closed', lastControl);
+          });
         }
       } catch (e) {
         console.error('Error actualizando estado de puerta:', e.message);
@@ -127,14 +206,19 @@ function sendGateCommand(cmd, lastControl = 'manual') {
           if (cmd === 'OPEN') {
             const lockedUntil = new Date(now.getTime() + OPEN_DURATION_MS).toISOString();
             db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`, ['open', lastControl, lockedUntil]);
+            notifyGateState('open', lastControl);
             // schedule a DB update to mark closed after OPEN_DURATION_MS so server state matches servo
             setTimeout(() => {
               db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
                 if (err) console.error('Error al actualizar estado a closed después de OPEN duration:', err.message);
+                else notifyGateState('closed', lastControl);
               });
             }, OPEN_DURATION_MS + 200);
           } else if (cmd === 'CLOSE') {
-            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl]);
+            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
+              if (err) console.error('Error actualizando estado:', err.message);
+              else notifyGateState('closed', lastControl);
+            });
           }
         } catch (e) {
           console.error('Error actualizando estado de puerta:', e.message);
@@ -197,7 +281,7 @@ initSerial();
 scheduleAllFromDb();
 
 app.get('/api/products', (req, res) => {
-  db.all('SELECT * FROM products ORDER BY created_at DESC', [], (err, rows) => {
+  db.all('SELECT id, name, sku, sku AS type, quantity, status, notes, created_at FROM products ORDER BY created_at DESC', [], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -206,9 +290,9 @@ app.get('/api/products', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
-  const { name, sku, quantity, status, notes } = req.body;
+  const { name, sku, type, quantity, status, notes } = req.body;
   const sql = `INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`;
-  db.run(sql, [name, sku || '', quantity || 0, status || 'activo', notes || ''], function (err) {
+  db.run(sql, [name, type || sku || '', quantity || 0, status || 'activo', notes || ''], function (err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -218,9 +302,9 @@ app.post('/api/products', (req, res) => {
 
 app.put('/api/products/:id', (req, res) => {
   const { id } = req.params;
-  const { name, sku, quantity, status, notes } = req.body;
+  const { name, sku, type, quantity, status, notes } = req.body;
   const sql = `UPDATE products SET name = ?, sku = ?, quantity = ?, status = ?, notes = ? WHERE id = ?`;
-  db.run(sql, [name, sku || '', quantity || 0, status || 'activo', notes || '', id], function (err) {
+  db.run(sql, [name, type || sku || '', quantity || 0, status || 'activo', notes || '', id], function (err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -238,14 +322,46 @@ app.delete('/api/products/:id', (req, res) => {
   });
 });
 
+app.get('/api/telegram/settings', async (req, res) => {
+  try {
+    const settings = await getTelegramSettings();
+    res.json({
+      phone: settings.phone,
+      botToken: settings.botToken,
+      chatId: settings.chatId,
+      enabled: settings.enabled
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/telegram/settings', async (req, res) => {
+  const { phone, botToken, chatId, enabled } = req.body;
+  try {
+    await runDb(
+      `INSERT OR REPLACE INTO telegram_settings (id, phone, bot_token, chat_id, enabled, updated_at) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [phone || '', botToken || '', chatId || '', enabled ? 1 : 0]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/telegram/test', async (req, res) => {
+  try {
+    await sendTelegramMessage('Prueba PetSmart: Telegram configurado correctamente.', { force: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/notify', async (req, res) => {
   const { productId, message } = req.body;
   if (!productId || !message) {
     return res.status(400).json({ error: 'productId y message son obligatorios' });
-  }
-
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    return res.status(500).json({ error: 'Faltan TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID en variables de entorno' });
   }
 
   db.get('SELECT * FROM products WHERE id = ?', [productId], async (err, product) => {
@@ -256,18 +372,10 @@ app.post('/api/notify', async (req, res) => {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
 
-    const text = `Producto: ${product.name}\nSKU: ${product.sku || '-'}\nCantidad: ${product.quantity}\nEstado: ${product.status}\nMensaje: ${message}`;
+    const text = `Producto: ${product.name}\nTipo: ${product.sku || '-'}\nCantidad: ${product.quantity}\nEstado: ${product.status}\nMensaje: ${message}`;
 
     try {
-      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text })
-      });
-      const result = await response.json();
-      if (!result.ok) {
-        return res.status(500).json({ error: result.description || 'Error al enviar Telegram' });
-      }
+      const result = await sendTelegramMessage(text, { force: true });
       res.json({ success: true, telegram: result });
     } catch (fetchError) {
       res.status(500).json({ error: fetchError.message });
