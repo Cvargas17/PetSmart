@@ -76,8 +76,12 @@ const scheduledJobs = new Map();
 const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
 
 function initSerial() {
-  if (!ARDUINO_PORT) {
-    console.warn('No ARDUINO_PORT configurado. La puerta no podrá abrirse por serie.');
+  if (!ARDUINO_PORT || ARDUINO_PORT === 'DEMO') {
+    if (ARDUINO_PORT === 'DEMO') {
+      console.log('MODO DEMO: Puerta simulada, sin conexión real a Arduino.');
+    } else {
+      console.warn('No ARDUINO_PORT configurado. La puerta no podrá abrirse por serie.');
+    }
     return;
   }
 
@@ -94,8 +98,25 @@ function initSerial() {
 
 function sendGateCommand(cmd, lastControl = 'manual') {
   return new Promise((resolve, reject) => {
-    if (!arduinoPort || !arduinoPort.writable) {
-      return reject(new Error('Puerto serie no inicializado o no disponible.'));
+    if (ARDUINO_PORT === 'DEMO' || !arduinoPort || !arduinoPort.writable) {
+      console.log(`[DEMO] Comando ${cmd} enviado (sin Arduino real)`);
+      try {
+        const now = new Date();
+        if (cmd === 'OPEN') {
+          const lockedUntil = new Date(now.getTime() + OPEN_DURATION_MS).toISOString();
+          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`, ['open', lastControl, lockedUntil]);
+          setTimeout(() => {
+            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
+              if (err) console.error('Error actualizando estado:', err.message);
+            });
+          }, OPEN_DURATION_MS + 200);
+        } else if (cmd === 'CLOSE') {
+          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl]);
+        }
+      } catch (e) {
+        console.error('Error actualizando estado de puerta:', e.message);
+      }
+      return resolve();
     }
     try {
       arduinoPort.write(cmd + '\n', async (err) => {

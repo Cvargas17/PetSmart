@@ -65,7 +65,7 @@ app.MapPost("/api/notify", async (NotificationRequest request, IHttpClientFactor
         return Results.NotFound(new { error = "Producto no encontrado." });
     }
 
-    var text = $"Producto: {product.Name}\nSKU: {product.Sku}\nCantidad: {product.Quantity}\nEstado: {product.Status}\nMensaje: {request.Message}";
+    var text = $"Producto: {product.Name}\nTipo: {product.Type}\nCantidad: {product.Quantity}\nEstado: {product.Status}\nMensaje: {request.Message}";
     var httpClient = httpClientFactory.CreateClient();
     var response = await httpClient.PostAsJsonAsync($"https://api.telegram.org/bot{settings.TelegramBotToken}/sendMessage", new
     {
@@ -98,7 +98,7 @@ static async Task InitializeDatabaseAsync(string connectionString)
         CREATE TABLE IF NOT EXISTS Products (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL,
-            Sku TEXT,
+            Type TEXT,
             Quantity INTEGER NOT NULL DEFAULT 0,
             Status TEXT NOT NULL DEFAULT 'activo',
             Notes TEXT,
@@ -118,7 +118,7 @@ static async Task<List<Product>> GetAllProductsAsync(string connectionString)
     await using var connection = new SqliteConnection(connectionString);
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();
-    command.CommandText = @"SELECT Id, Name, Sku, Quantity, Status, Notes, CreatedAt FROM Products ORDER BY CreatedAt DESC";
+    command.CommandText = @"SELECT Id, Name, Type, Quantity, Status, Notes, CreatedAt FROM Products ORDER BY CreatedAt DESC";
 
     await using var reader = await command.ExecuteReaderAsync();
     while (await reader.ReadAsync())
@@ -141,7 +141,7 @@ static async Task<Product?> GetProductByIdAsync(string connectionString, int id)
     await using var connection = new SqliteConnection(connectionString);
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();
-    command.CommandText = @"SELECT Id, Name, Sku, Quantity, Status, Notes, CreatedAt FROM Products WHERE Id = $id";
+    command.CommandText = @"SELECT Id, Name, Type, Quantity, Status, Notes, CreatedAt FROM Products WHERE Id = $id";
     command.Parameters.AddWithValue("$id", id);
 
     await using var reader = await command.ExecuteReaderAsync();
@@ -165,9 +165,9 @@ static async Task<int> CreateProductAsync(string connectionString, ProductReques
     await using var connection = new SqliteConnection(connectionString);
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();
-    command.CommandText = @"INSERT INTO Products (Name, Sku, Quantity, Status, Notes) VALUES ($name, $sku, $quantity, $status, $notes); SELECT last_insert_rowid();";
+    command.CommandText = @"INSERT INTO Products (Name, Type, Quantity, Status, Notes) VALUES ($name, $type, $quantity, $status, $notes); SELECT last_insert_rowid();";
     command.Parameters.AddWithValue("$name", request.Name);
-    command.Parameters.AddWithValue("$sku", request.Sku ?? string.Empty);
+    command.Parameters.AddWithValue("$type", request.Type ?? string.Empty);
     command.Parameters.AddWithValue("$quantity", request.Quantity);
     command.Parameters.AddWithValue("$status", request.Status ?? "activo");
     command.Parameters.AddWithValue("$notes", request.Notes ?? string.Empty);
@@ -181,9 +181,9 @@ static async Task<int> UpdateProductAsync(string connectionString, int id, Produ
     await using var connection = new SqliteConnection(connectionString);
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();
-    command.CommandText = @"UPDATE Products SET Name = $name, Sku = $sku, Quantity = $quantity, Status = $status, Notes = $notes WHERE Id = $id";
+    command.CommandText = @"UPDATE Products SET Name = $name, Type = $type, Quantity = $quantity, Status = $status, Notes = $notes WHERE Id = $id";
     command.Parameters.AddWithValue("$name", request.Name);
-    command.Parameters.AddWithValue("$sku", request.Sku ?? string.Empty);
+    command.Parameters.AddWithValue("$type", request.Type ?? string.Empty);
     command.Parameters.AddWithValue("$quantity", request.Quantity);
     command.Parameters.AddWithValue("$status", request.Status ?? "activo");
     command.Parameters.AddWithValue("$notes", request.Notes ?? string.Empty);
@@ -204,7 +204,7 @@ static async Task<int> DeleteProductAsync(string connectionString, int id)
 }
 
 internal sealed record AppSettings(string? TelegramBotToken, string? TelegramChatId, string ConnectionString);
-internal sealed record Product(int Id, string Name, string Sku, int Quantity, string Status, string Notes, string CreatedAt);
-internal sealed record ProductRequest(string Name, string? Sku, int Quantity, string? Status, string? Notes);
+internal sealed record Product(int Id, string Name, string Type, int Quantity, string Status, string Notes, string CreatedAt);
+internal sealed record ProductRequest(string Name, string? Type, int Quantity, string? Status, string? Notes);
 internal sealed record NotificationRequest(int ProductId, string Message);
 internal sealed record TelegramResponse(bool Ok, int? ErrorCode, string? Description);

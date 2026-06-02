@@ -14,6 +14,28 @@
     </header>
 
     <section class="panel">
+      <h2>Productos Agregados</h2>
+      <div id="alert" class="alert hidden"></div>
+      <div class="actions">
+        <button type="button" id="toggle-form-button" class="secondary">+ Agregar Producto</button>
+      </div>
+      <table id="products-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Tipo</th>
+            <th>Cant.</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel hidden" id="form-section">
+      <h2>Agregar Producto</h2>
       <form id="product-form">
         <input type="hidden" id="product-id" />
         <div class="row">
@@ -21,8 +43,12 @@
           <input id="name" type="text" required placeholder="Nombre del producto" />
         </div>
         <div class="row">
-          <label>SKU</label>
-          <input id="sku" type="text" placeholder="Código SKU" />
+          <label>Tipo de Producto</label>
+          <select id="type" required>
+            <option value="">Selecciona un tipo</option>
+            <option value="puerta">Puerta</option>
+            <option value="otro">Otro</option>
+          </select>
         </div>
         <div class="row">
           <label>Cantidad</label>
@@ -43,6 +69,7 @@
         <div class="actions">
           <button type="submit">Guardar producto</button>
           <button type="button" id="reset-button" class="secondary">Limpiar</button>
+          <button type="button" id="cancel-form-button" class="secondary">Cancelar</button>
         </div>
       </form>
     </section>
@@ -55,69 +82,128 @@
       <div class="row">
         <strong>Estado puerta:</strong> <span id="gate-status">Desconocido</span>
       </div>
-      <h3>Schedules</h3>
-      <form id="schedule-form">
-        <input type="hidden" id="schedule-id" />
-        <div class="row">
-          <label>Hora (cada hora en punto)</label>
-          <select id="schedule-time" required>
-            <option value="">Selecciona una hora</option>
-            <option value="00:00">00:00</option>
-            <option value="01:00">01:00</option>
-            <option value="02:00">02:00</option>
-            <option value="03:00">03:00</option>
-            <option value="04:00">04:00</option>
-            <option value="05:00">05:00</option>
-            <option value="06:00">06:00</option>
-            <option value="07:00">07:00</option>
-            <option value="08:00">08:00</option>
-            <option value="09:00">09:00</option>
-            <option value="10:00">10:00</option>
-            <option value="11:00">11:00</option>
-            <option value="12:00">12:00</option>
-            <option value="13:00">13:00</option>
-            <option value="14:00">14:00</option>
-            <option value="15:00">15:00</option>
-            <option value="16:00">16:00</option>
-            <option value="17:00">17:00</option>
-            <option value="18:00">18:00</option>
-            <option value="19:00">19:00</option>
-            <option value="20:00">20:00</option>
-            <option value="21:00">21:00</option>
-            <option value="22:00">22:00</option>
-            <option value="23:00">23:00</option>
-          </select>
-        </div>
-        <div class="actions">
-          <button type="submit" id="schedule-submit">Agregar schedule</button>
-          <button type="button" id="cancel-schedule-edit" class="secondary hidden">Cancelar</button>
-        </div>
-      </form>
-      <table id="schedules-table">
-        <thead>
-          <tr><th>Hora</th><th>Activo</th><th>Acciones</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
     </section>
 
-    <section class="panel">
-      <h2>Productos</h2>
-      <div id="alert" class="alert hidden"></div>
-      <table id="products-table">
-        <thead>
-          <tr>
-            <th>Nombre</th>
-            <th>SKU</th>
-            <th>Cant.</th>
-            <th>Estado</th>
-            <th>Notas</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+    <!-- Modal para editar producto -->
+    <div id="product-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modal-title">Editar Producto</h2>
+          <button type="button" id="close-modal-button" class="close-button">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-section">
+            <h3>Información del Producto</h3>
+            <div class="row">
+              <label>Nombre</label>
+              <input id="modal-name" type="text" placeholder="Nombre del producto" />
+            </div>
+            <div class="row">
+            <label>Tipo de Producto</label>
+            <select id="modal-type">
+              <option value="">Selecciona un tipo</option>
+              <option value="puerta">Puerta</option>
+              <option value="otro">Otro</option>
+            </select>
+              <select id="modal-status">
+                <option value="activo">Activo</option>
+                <option value="agotado">Agotado</option>
+                <option value="pendiente">Pendiente</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>Notas</label>
+              <textarea id="modal-notes" rows="2" placeholder="Notas del producto"></textarea>
+            </div>
+            <div class="actions">
+              <button type="button" id="modal-save-button" class="primary">Guardar Cambios</button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <h3>Bloques de Horarios</h3>
+            <div class="row">
+              <label>Hora de Inicio</label>
+              <select id="modal-schedule-start" required>
+                <option value="">Selecciona hora de inicio</option>
+                <option value="00:00">00:00</option>
+                <option value="01:00">01:00</option>
+                <option value="02:00">02:00</option>
+                <option value="03:00">03:00</option>
+                <option value="04:00">04:00</option>
+                <option value="05:00">05:00</option>
+                <option value="06:00">06:00</option>
+                <option value="07:00">07:00</option>
+                <option value="08:00">08:00</option>
+                <option value="09:00">09:00</option>
+                <option value="10:00">10:00</option>
+                <option value="11:00">11:00</option>
+                <option value="12:00">12:00</option>
+                <option value="13:00">13:00</option>
+                <option value="14:00">14:00</option>
+                <option value="15:00">15:00</option>
+                <option value="16:00">16:00</option>
+                <option value="17:00">17:00</option>
+                <option value="18:00">18:00</option>
+                <option value="19:00">19:00</option>
+                <option value="20:00">20:00</option>
+                <option value="21:00">21:00</option>
+                <option value="22:00">22:00</option>
+                <option value="23:00">23:00</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>Hora de Fin</label>
+              <select id="modal-schedule-end" required>
+                <option value="">Selecciona hora de fin</option>
+                <option value="00:00">00:00</option>
+                <option value="01:00">01:00</option>
+                <option value="02:00">02:00</option>
+                <option value="03:00">03:00</option>
+                <option value="04:00">04:00</option>
+                <option value="05:00">05:00</option>
+                <option value="06:00">06:00</option>
+                <option value="07:00">07:00</option>
+                <option value="08:00">08:00</option>
+                <option value="09:00">09:00</option>
+                <option value="10:00">10:00</option>
+                <option value="11:00">11:00</option>
+                <option value="12:00">12:00</option>
+                <option value="13:00">13:00</option>
+                <option value="14:00">14:00</option>
+                <option value="15:00">15:00</option>
+                <option value="16:00">16:00</option>
+                <option value="17:00">17:00</option>
+                <option value="18:00">18:00</option>
+                <option value="19:00">19:00</option>
+                <option value="20:00">20:00</option>
+                <option value="21:00">21:00</option>
+                <option value="22:00">22:00</option>
+                <option value="23:00">23:00</option>
+              </select>
+            </div>
+            <div class="actions">
+              <button type="button" id="modal-add-schedule-button" class="secondary">Agregar Bloque de Horario</button>
+            </div>
+            <table id="modal-schedules-table">
+              <thead>
+                <tr><th>Inicio</th><th>Fin</th><th>Activo</th><th>Acciones</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="modal-section">
+            <h3>Acciones</h3>
+            <div class="actions">
+              <button type="button" id="modal-notify-button" class="secondary">Notificar a Telegram</button>
+              <button type="button" id="modal-delete-button" class="danger">Eliminar Producto</button>
+              <button type="button" id="modal-close-button" class="secondary">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>
