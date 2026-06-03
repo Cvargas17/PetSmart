@@ -1,21 +1,25 @@
+#include <Arduino.h>
 #include <Servo.h>
 
-// Sketch simple para controlar una puerta con un servo.
-// Protocolo por serie: enviar "OPEN" (sin comillas) seguido de \n para abrir.
-// Ajusta los pines y ángulos según tu montaje.
-
-const int SERVO_PIN = 9;
-const int OPEN_ANGLE = 0;   // ángulo para puerta abierta
-const int CLOSED_ANGLE = 90; // ángulo para puerta cerrada
-const unsigned long OPEN_DURATION_MS = 3000; // tiempo que mantiene abierta
+const int SERVO_PIN = 3;
+const int OPEN_ANGLE = 10;
+const int CLOSED_ANGLE = 170;
+const unsigned long OPEN_DURATION_MS = 3000;
+const unsigned long MOVE_DELAY_MS = 500; // tiempo para que el servo alcance la posicion
 
 Servo gateServo;
 String buffer = "";
 
+void moveServo(int angle) {
+  gateServo.attach(SERVO_PIN);
+  gateServo.write(angle);
+  delay(MOVE_DELAY_MS);
+  gateServo.detach();
+}
+
 void setup() {
   Serial.begin(9600);
-  gateServo.attach(SERVO_PIN);
-  gateServo.write(CLOSED_ANGLE);
+  moveServo(CLOSED_ANGLE);
   Serial.println("READY");
 }
 
@@ -35,13 +39,16 @@ void loop() {
 void handleCommand(const String &cmd) {
   if (cmd.equalsIgnoreCase("OPEN")) {
     Serial.println("OPENING");
-    gateServo.write(OPEN_ANGLE);
+    moveServo(OPEN_ANGLE);
+    Serial.println("OPEN");
     delay(OPEN_DURATION_MS);
-    gateServo.write(CLOSED_ANGLE);
+    moveServo(CLOSED_ANGLE);
     Serial.println("CLOSED");
+    while (Serial.available()) Serial.read();
+    buffer = "";
   } else if (cmd.equalsIgnoreCase("CLOSE")) {
     Serial.println("CLOSING");
-    gateServo.write(CLOSED_ANGLE);
+    moveServo(CLOSED_ANGLE);
     Serial.println("CLOSED");
   } else {
     Serial.print("UNKNOWN:");

@@ -75,9 +75,18 @@
     </section>
     <section class="panel">
       <h2>Control de Puerta</h2>
+      <div class="connection-status">
+        <span id="serial-dot" class="status-dot"></span>
+        <span id="serial-status">Verificando conexión...</span>
+      </div>
+      <div class="connection-status" id="arduino-response-row" style="display:none">
+        <span style="color:#6b7280;font-size:0.85rem">Arduino:</span>
+        <code id="arduino-last-msg" style="font-size:0.85rem"></code>
+      </div>
+      <p id="gate-no-connection" class="hint hidden">Arduino no conectado. Revisa el cable y que <code>ARDUINO_PORT</code> esté configurado en el archivo <code>.env</code>.</p>
       <div class="row">
-        <button id="open-gate-button">Abrir puerta (manual)</button>
-        <button id="close-gate-button" class="secondary">Cerrar puerta (manual)</button>
+        <button id="open-gate-button" disabled>Abrir puerta (manual)</button>
+        <button id="close-gate-button" class="secondary" disabled>Cerrar puerta (manual)</button>
       </div>
       <div class="row">
         <strong>Estado puerta:</strong> <span id="gate-status">Desconocido</span>

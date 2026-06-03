@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
@@ -89,6 +90,8 @@ db.run(`
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
 let arduinoPort = null;
+let serialReady = false;
+let lastArduinoMessage = '';
 const scheduledJobs = new Map();
 const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
 
@@ -161,8 +164,21 @@ function initSerial() {
 
   try {
     arduinoPort = new SerialPort({ path: ARDUINO_PORT, baudRate: 9600 });
+    arduinoPort.on('open', () => {
+      serialReady = true;
+    });
+    arduinoPort.on('error', () => {
+      serialReady = false;
+    });
+    arduinoPort.on('close', () => {
+      serialReady = false;
+    });
     arduinoPort.on('open', () => console.log('Conexión serie con Arduino abierta en', ARDUINO_PORT));
-    arduinoPort.on('data', (data) => console.log('Arduino:', data.toString()));
+    arduinoPort.on('data', (data) => {
+      const msg = data.toString().trim();
+      if (msg) lastArduinoMessage = msg;
+      console.log('Arduino:', msg);
+    });
     arduinoPort.on('error', (err) => console.error('Error puerto serie:', err.message));
   } catch (e) {
     console.error('No se pudo inicializar el puerto serie:', e.message);
@@ -172,7 +188,7 @@ function initSerial() {
 
 function sendGateCommand(cmd, lastControl = 'manual') {
   return new Promise((resolve, reject) => {
-    if (ARDUINO_PORT === 'DEMO' || !arduinoPort || !arduinoPort.writable) {
+    if (ARDUINO_PORT === 'DEMO') {
       console.log(`[DEMO] Comando ${cmd} enviado (sin Arduino real)`);
       try {
         const now = new Date();
@@ -197,6 +213,15 @@ function sendGateCommand(cmd, lastControl = 'manual') {
       }
       return resolve();
     }
+
+    if (!ARDUINO_PORT) {
+      return reject(new Error('ARDUINO_PORT no configurado. Define el puerto del Arduino, por ejemplo COM3.'));
+    }
+
+    if (!serialReady || !arduinoPort || !arduinoPort.isOpen || !arduinoPort.writable) {
+      return reject(new Error(`Arduino no conectado o puerto no disponible (${ARDUINO_PORT}). Revisa el cable, el puerto COM y reinicia el servidor.`));
+    }
+
     try {
       arduinoPort.write(cmd + '\n', async (err) => {
         if (err) return reject(err);
@@ -425,6 +450,15 @@ app.get('/api/gate/state', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/gate/connection', (req, res) => {
+  res.json({
+    connected: serialReady,
+    port: ARDUINO_PORT || null,
+    demo: ARDUINO_PORT === 'DEMO',
+    lastMessage: lastArduinoMessage || null
+  });
 });
 
 app.get('/api/gate/schedules', (req, res) => {

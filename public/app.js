@@ -42,6 +42,13 @@ const modalSchedulesTableBody = document.querySelector('#modal-schedules-table t
 const openGateButton = document.getElementById('open-gate-button');
 const closeGateButton = document.getElementById('close-gate-button');
 const gateStatusEl = document.getElementById('gate-status');
+const serialDot = document.getElementById('serial-dot');
+const serialStatusEl = document.getElementById('serial-status');
+const gateNoConnectionEl = document.getElementById('gate-no-connection');
+const arduinoResponseRow = document.getElementById('arduino-response-row');
+const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
+
+let arduinoConnected = false;
 
 // Telegram elements
 const telegramForm = document.getElementById('telegram-form');
@@ -441,6 +448,44 @@ loadTelegramSettings();
 
 // ===== GATE CONTROL FUNCTIONS =====
 
+async function loadConnectionStatus() {
+  try {
+    const res = await fetch('/api/gate/connection');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    arduinoConnected = data.connected || data.demo;
+
+    if (data.demo) {
+      serialDot.className = 'status-dot demo';
+      serialStatusEl.textContent = 'Modo Demo (sin Arduino real)';
+    } else if (data.connected) {
+      serialDot.className = 'status-dot connected';
+      serialStatusEl.textContent = `Conectado en ${data.port}`;
+    } else if (data.port) {
+      serialDot.className = 'status-dot disconnected';
+      serialStatusEl.textContent = `Sin conexión en ${data.port} — revisa el cable`;
+    } else {
+      serialDot.className = 'status-dot disconnected';
+      serialStatusEl.textContent = 'ARDUINO_PORT no configurado';
+    }
+
+    gateNoConnectionEl.classList.toggle('hidden', arduinoConnected);
+
+    if (data.lastMessage) {
+      arduinoLastMsgEl.textContent = data.lastMessage;
+      arduinoResponseRow.style.display = 'flex';
+    }
+
+    if (!arduinoConnected) {
+      openGateButton.disabled = true;
+      closeGateButton.disabled = true;
+    }
+  } catch (e) {
+    console.error('Error verificando conexión serial', e);
+  }
+}
+
 async function openGate() {
   try {
     const res = await fetch('/api/gate/open', { method: 'POST' });
@@ -483,7 +528,7 @@ async function loadGateState() {
       if (lu > now && st.last_control === 'schedule') locked = true;
     }
     gateStatusEl.textContent = `${st.state}${locked ? ' (Bloqueada por schedule hasta ' + st.locked_until + ')' : ''}`;
-    if (locked) {
+    if (!arduinoConnected || locked) {
       openGateButton.disabled = true;
       closeGateButton.disabled = true;
     } else {
@@ -507,5 +552,10 @@ closeGateButton?.addEventListener('click', closeGate);
 
 // ===== INITIALIZE =====
 
-loadGateState();
-setInterval(loadGateState, 5000);
+async function refreshGate() {
+  await loadConnectionStatus();
+  loadGateState();
+}
+
+refreshGate();
+setInterval(refreshGate, 5000);

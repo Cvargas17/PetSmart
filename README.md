@@ -81,7 +81,7 @@ set ARDUINO_PORT=COM3
 node server.js
 ```
 
-3. Flashea el sketch Arduino en `arduino/gate_controller.ino`.
+3. Flashea el sketch Arduino en `arduino/gate_controller.ino`. El servo esta configurado en el pin digital 3.
 
 4. En la web, usa el botón "Abrir puerta (manual)" o crea schedules desde la UI.
 

@@ -7,13 +7,19 @@
     "start": "node server.js",
     "dev": "node server.js"
   },
-  "keywords": ["express", "telegram", "sqlite", "productos"],
+  "keywords": [
+    "express",
+    "telegram",
+    "sqlite",
+    "productos"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.18.4",
-    "sqlite3": "^5.1.6",
+    "node-schedule": "^2.1.1",
     "serialport": "^11.0.0",
-    "node-schedule": "^2.1.1"
+    "sqlite3": "^5.1.6"
   }
 }
