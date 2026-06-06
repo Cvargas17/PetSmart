@@ -106,6 +106,7 @@ function renderProducts(products) {
       <td>${product.notes || '-'}</td>
       <td class="actions-cell">
         <button class="small" data-action="open-details" data-id="${product.id}">Ver Detalles</button>
+        ${/sistema de comunicaci/i.test(product.name) ? `<button class="small" data-action="speak" data-id="${product.id}">Hablar</button>` : ''}
       </td>
     `;
     tableBody.appendChild(row);
@@ -426,6 +427,48 @@ tableBody.addEventListener('click', (event) => {
   if (!button) return;
   openProductModal(Number(button.dataset.id));
 });
+
+// Handle speak action for communication device
+tableBody.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-action="speak"]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  // Call server to publish MQTT and send Telegram
+  try {
+    await fetch('/api/communication/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId: id, frequency: 880, duration: 0.9 })
+    });
+    showAlert('Se emitió la señal para hablar.');
+  } catch (e) {
+    showAlert('Error enviando señal de hablar.', 'error');
+  }
+});
+
+// Simple WebAudio beep for "Hablar"
+function playBeep({ frequency = 880, duration = 0.9, type = 'sine' } = {}) {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = frequency;
+    o.connect(g);
+    g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+    o.start();
+    setTimeout(() => {
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+      o.stop(ctx.currentTime + 0.06);
+      try { ctx.close(); } catch (e) {}
+    }, duration * 1000);
+  } catch (e) {
+    console.error('Error reproducir sonido:', e);
+  }
+}
 telegramForm.addEventListener('submit', saveTelegramSettings);
 telegramTestButton.addEventListener('click', testTelegramSettings);
 

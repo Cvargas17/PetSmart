@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const { SerialPort } = require('serialport');
 const schedule = require('node-schedule');
+const mqtt = require('mqtt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,18 @@ if (!dbExists) {
       console.error('Error al crear la tabla products:', err.message);
     } else {
       console.log('Base de datos inicializada en', DB_PATH);
+    }
+  });
+
+  // Insert default communication system product if not present
+  db.get(`SELECT id FROM products WHERE name = ?`, ['sistema de comunicación'], (err, row) => {
+    if (err) return console.error('Error comprobando producto por defecto:', err.message);
+    if (!row) {
+      db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
+        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Sistema de comunicación (Raspberry Pi Pico W) — botón Hablar que emite sonido en la web.'], (ierr) => {
+          if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
+          else console.log('Producto por defecto "sistema de comunicación" agregado.');
+        });
     }
   });
 }
@@ -85,6 +98,18 @@ db.run(`
     `INSERT OR IGNORE INTO telegram_settings (id, phone, bot_token, chat_id, enabled, updated_at) VALUES (1, '', ?, ?, ?, CURRENT_TIMESTAMP)`,
     [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? 1 : 0]
   );
+
+  // Ensure default communication system product exists (useful if DB already existed)
+  db.get(`SELECT id FROM products WHERE name = ?`, ['sistema de comunicación'], (err, row) => {
+    if (err) return console.error('Error comprobando producto por defecto:', err.message);
+    if (!row) {
+      db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
+        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Sistema de comunicación (Raspberry Pi Pico W) — botón Hablar que emite sonido en la web.'], (ierr) => {
+          if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
+          else console.log('Producto por defecto "sistema de comunicación" agregado.');
+        });
+    }
+  });
 });
 
 // Serial port setup
@@ -94,6 +119,19 @@ let serialReady = false;
 let lastArduinoMessage = '';
 const scheduledJobs = new Map();
 const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
+
+// MQTT setup
+const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
+const MQTT_TOPIC = process.env.MQTT_TOPIC || 'mi_proyecto/melodia';
+let mqttClient = null;
+try {
+  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
+  mqttClient.on('connect', () => console.log('Conectado a broker MQTT:', MQTT_BROKER));
+  mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
+} catch (e) {
+  console.error('No se pudo inicializar MQTT:', e.message);
+  mqttClient = null;
+}
 
 function runDb(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -521,6 +559,45 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
     cancelScheduledJob(id);
     res.json({ changes: this.changes });
   });
+});
+
+// Endpoint para hacer que el sistema de comunicación emita sonido (publica MQTT y notifica Telegram)
+app.post('/api/communication/speak', async (req, res) => {
+  try {
+    const { productId, frequency = 880, duration = 0.9 } = req.body || {};
+    console.log('📢 POST /api/communication/speak:', { productId, frequency, duration });
+    
+    // publish MQTT message
+    if (!mqttClient) {
+      console.warn('❌ MQTT client not initialized');
+    } else if (!mqttClient.connected) {
+      console.warn('⚠️  MQTT no conectado, intentando continuar');
+    } else {
+      const payload = JSON.stringify({ f: Number(frequency) || 0, d: Number(duration) || 0.9 });
+      console.log(`📤 Publicando en MQTT topic "${MQTT_TOPIC}":`, payload);
+      mqttClient.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) => {
+        if (err) {
+          console.error('❌ Error publicando MQTT:', err.message);
+        } else {
+          console.log('✅ Mensaje publicado en MQTT exitosamente');
+        }
+      });
+    }
+
+    // send Telegram notification (if configured)
+    const prodRow = await getDb('SELECT name FROM products WHERE id = ?', [productId || 1]);
+    const pname = prodRow?.name || 'sistema de comunicación';
+    try {
+      await sendTelegramMessage(`Se está hablando en ${pname}`, { force: true });
+    } catch (tgErr) {
+      console.error('Error enviando Telegram:', tgErr.message);
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error en /api/communication/speak:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('*', (req, res) => {
