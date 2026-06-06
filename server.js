@@ -87,6 +87,33 @@ db.run(`
   );
 });
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS motion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estado TEXT NOT NULL,
+    valor INTEGER,
+    alerta INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla motion_events:', err.message);
+});
+
+// Tabla para configuración del sensor
+db.run(`
+  CREATE TABLE IF NOT EXISTS sensor_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    notify_enabled INTEGER DEFAULT 1,
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla sensor_settings:', err.message);
+  else {
+    // Insertar registro por defecto si no existe
+    db.run(`INSERT OR IGNORE INTO sensor_settings (id, notify_enabled, updated_at) VALUES (1, 1, CURRENT_TIMESTAMP)`);
+  }
+});
+
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
 let arduinoPort = null;
@@ -521,6 +548,72 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
     cancelScheduledJob(id);
     res.json({ changes: this.changes });
   });
+});
+
+// ===== SENSOR DE MOVIMIENTO ENDPOINTS =====
+
+app.post('/api/sensor/motion', (req, res) => {
+  const { estado, valor, alerta } = req.body;
+  if (!estado) {
+    return res.status(400).json({ error: 'estado es obligatorio' });
+  }
+  
+  db.run(
+    `INSERT INTO motion_events (estado, valor, alerta) VALUES (?, ?, ?)`,
+    [estado, valor || 0, alerta ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      
+      if (alerta) {
+        sendTelegramMessage(`🚨 ALERTA DE MOVIMIENTO\nEstado: ${estado}\nValor: ${valor}\nHora: ${new Date().toLocaleString()}`)
+          .catch(e => console.error('Error enviando Telegram:', e.message));
+      }
+      
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.get('/api/sensor/state', (req, res) => {
+  db.get(
+    `SELECT estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT 1`,
+    [],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || { estado: 'sin_datos', valor: 0, alerta: 0 });
+    }
+  );
+});
+
+app.get('/api/sensor/history', (req, res) => {
+  const limit = req.query.limit || 20;
+  db.all(
+    `SELECT id, estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+app.get('/api/sensor/notify-setting', (req, res) => {
+  db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ enabled: row ? row.notify_enabled === 1 : true });
+  });
+});
+
+app.post('/api/sensor/notify-setting', (req, res) => {
+  const { enabled } = req.body;
+  db.run(
+    `UPDATE sensor_settings SET notify_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+    [enabled ? 1 : 0],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
 });
 
 app.get('*', (req, res) => {
