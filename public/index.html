@@ -47,6 +47,7 @@
           <select id="type" required>
             <option value="">Selecciona un tipo</option>
             <option value="puerta">Puerta</option>
+            <option value="sensor">Sensor de Movimiento</option>
             <option value="otro">Otro</option>
           </select>
         </div>
@@ -92,6 +93,44 @@
         <strong>Estado puerta:</strong> <span id="gate-status">Desconocido</span>
       </div>
     </section>
+    
+    <section class="panel">
+      <h2>Sensor de Movimiento (Láser)</h2>
+      <div class="connection-status">
+        <span id="sensor-status-dot" class="status-dot"></span>
+        <span id="sensor-status-text">Cargando...</span>
+  </div>
+  <div class="row">
+    <strong>Último evento:</strong> <span id="sensor-last-event">---</span>
+  </div>
+  <div class="row">
+    <strong>Valor del sensor:</strong> <span id="sensor-last-value">---</span>
+  </div>
+  <div class="row">
+    <strong>Hora:</strong> <span id="sensor-last-time">---</span>
+  </div>
+  <div class="row">
+    <label class="check-row">
+      <input id="sensor-notify-toggle" type="checkbox" />
+      Activar notificaciones por Telegram (falta de movimiento)
+    </label>
+  </div>
+  <div class="actions">
+    <button id="refresh-sensor-btn" class="secondary">Refrescar</button>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Historial de Eventos - Sensor de Movimiento</h3>
+  <table id="sensor-history-table">
+    <thead>
+      <tr><th>Fecha/Hora</th><th>Evento</th><th>Valor</th><th>Notificación</th></tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="4" class="empty">Cargando historial...</td></tr>
+    </tbody>
+  </table>
+</section>
 
     <section class="panel">
       <h2>Telegram</h2>
@@ -139,6 +178,7 @@
             <select id="modal-type">
               <option value="">Selecciona un tipo</option>
               <option value="puerta">Puerta</option>
+              <option value="sensor">Sensor de Movimiento</option>
               <option value="otro">Otro</option>
             </select>
             </div>

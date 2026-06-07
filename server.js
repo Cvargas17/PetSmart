@@ -112,6 +112,33 @@ db.run(`
   });
 });
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS motion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estado TEXT NOT NULL,
+    valor INTEGER,
+    alerta INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla motion_events:', err.message);
+});
+
+// Tabla para configuración del sensor
+db.run(`
+  CREATE TABLE IF NOT EXISTS sensor_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    notify_enabled INTEGER DEFAULT 1,
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla sensor_settings:', err.message);
+  else {
+    // Insertar registro por defecto si no existe
+    db.run(`INSERT OR IGNORE INTO sensor_settings (id, notify_enabled, updated_at) VALUES (1, 1, CURRENT_TIMESTAMP)`);
+  }
+});
+
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
 let arduinoPort = null;

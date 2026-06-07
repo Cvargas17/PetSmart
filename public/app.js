@@ -602,3 +602,140 @@ async function refreshGate() {
 
 refreshGate();
 setInterval(refreshGate, 5000);
+
+// ===== SENSOR DE MOVIMIENTO =====
+
+let sensorNotifyEnabled = true;
+
+async function loadSensorState() {
+  try {
+    const res = await fetch('/api/sensor/state');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    const dot = document.getElementById('sensor-status-dot');
+    const statusText = document.getElementById('sensor-status-text');
+    const lastEventSpan = document.getElementById('sensor-last-event');
+    const lastValueSpan = document.getElementById('sensor-last-value');
+    const lastTimeSpan = document.getElementById('sensor-last-time');
+    
+    if (!dot || !statusText) return;
+    
+    if (data.estado === 'movimiento') {
+      dot.className = 'status-dot connected';
+      statusText.textContent = 'Movimiento detectado (haz interrumpido)';
+      if (lastEventSpan) lastEventSpan.textContent = '🔴 MOVIMIENTO';
+    } else if (data.estado === 'sin_movimiento') {
+      dot.className = 'status-dot disconnected';
+      statusText.textContent = 'Sin movimiento (haz intacto)';
+      if (lastEventSpan) lastEventSpan.textContent = '🟢 Sin movimiento';
+    } else {
+      dot.className = 'status-dot demo';
+      statusText.textContent = 'Sin datos';
+      if (lastEventSpan) lastEventSpan.textContent = '---';
+    }
+    
+    if (lastValueSpan) lastValueSpan.textContent = data.valor || '---';
+    if (lastTimeSpan) lastTimeSpan.textContent = data.created_at ? new Date(data.created_at).toLocaleString() : '---';
+  } catch (e) {
+    console.error('Error cargando estado del sensor:', e);
+  }
+}
+
+async function loadSensorHistory() {
+  try {
+    const res = await fetch('/api/sensor/history?limit=20');
+    if (!res.ok) return;
+    const events = await res.json();
+    
+    const tbody = document.querySelector('#sensor-history-table tbody');
+    if (!tbody) return;
+    
+    if (!events.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No hay eventos registrados</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    events.forEach(ev => {
+      const row = document.createElement('tr');
+      const fecha = new Date(ev.created_at).toLocaleString();
+      let evento = '';
+      let notificacion = '';
+      
+      if (ev.estado === 'movimiento') {
+        evento = '🔴 MOVIMIENTO - Haz interrumpido';
+        notificacion = 'No';
+      } else {
+        evento = '🟢 Sin movimiento - Haz intacto';
+        notificacion = ev.alerta ? '✅ Sí (Telegram)' : 'No';
+      }
+      
+      row.innerHTML = `
+        <td>${fecha}</td>
+        <td>${evento}</td>
+        <td>${ev.valor}</td>
+        <td>${notificacion}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (e) {
+    console.error('Error cargando historial:', e);
+  }
+}
+
+async function loadSensorNotifySetting() {
+  try {
+    const res = await fetch('/api/sensor/notify-setting');
+    if (res.ok) {
+      const data = await res.json();
+      sensorNotifyEnabled = data.enabled;
+      const toggle = document.getElementById('sensor-notify-toggle');
+      if (toggle) toggle.checked = sensorNotifyEnabled;
+    }
+  } catch (e) {
+    console.error('Error cargando configuración:', e);
+  }
+}
+
+async function saveSensorNotifySetting(enabled) {
+  try {
+    await fetch('/api/sensor/notify-setting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+  } catch (e) {
+    console.error('Error guardando configuración:', e);
+  }
+}
+
+// Event listener para el toggle
+const notifyToggle = document.getElementById('sensor-notify-toggle');
+if (notifyToggle) {
+  notifyToggle.addEventListener('change', (e) => {
+    sensorNotifyEnabled = e.target.checked;
+    saveSensorNotifySetting(sensorNotifyEnabled);
+  });
+}
+
+// Botón refrescar
+const refreshBtn = document.getElementById('refresh-sensor-btn');
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', () => {
+    loadSensorState();
+    loadSensorHistory();
+  });
+}
+
+// Inicializar sensor (después de que el DOM esté listo)
+setTimeout(() => {
+  loadSensorState();
+  loadSensorHistory();
+  loadSensorNotifySetting();
+}, 500);
+
+// Actualizar cada 5 segundos
+setInterval(() => {
+  loadSensorState();
+}, 5000);
