@@ -1,13 +1,23 @@
 :root {
-  --bg: #f9fafb;
-  --card: #ffffff;
-  --text: #111827;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --primary: #2563eb;
-  --primary-strong: #1d4ed8;
-  --danger: #dc2626;
-  --success: #16a34a;
+  /* Smart Pet Home — Paleta de marca */
+  --nav:           #1F4E79; /* Azul oscuro — base/navegación */
+  --primary:       #2E86AB; /* Azul medio  — botones principales */
+  --indicator:     #4FC3F7; /* Azul claro  — indicadores */
+  --accent:        #F57C00; /* Naranja     — acciones/marca */
+  --accent-hover:  #FFB74D; /* Naranja claro — hover/secundario */
+  --pet-gold:      #F2C94C; /* Dorado claro — mascota */
+  --pet-gold-dark: #E0A106; /* Dorado medio — mascota */
+  --beige:         #F5E6CA; /* Beige       — mascota/fondo */
+
+  /* Roles semánticos */
+  --bg:           #F2F2F2;
+  --card:         #FFFFFF;
+  --text:         #333333;
+  --muted:        #9E9E9E;
+  --border:       #E0E0E0;
+  --primary-strong: #1F4E79;
+  --danger:       #dc2626;
+  --success:      #16a34a;
 }
 
 * {
@@ -27,21 +37,30 @@ body {
   padding: 24px;
 }
 
+/* ── Header de marca ─────────────────────────────────── */
 header {
-  text-align: center;
+  background: var(--nav);
+  border-radius: 16px;
+  padding: 28px 32px;
   margin-bottom: 24px;
+  text-align: center;
 }
 
-header h1 {
-  margin: 0;
-  font-size: 2rem;
+.header-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
-header p {
-  margin: 8px 0 0;
-  color: var(--muted);
+.brand-logo {
+  height: 140px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.25));
 }
 
+/* ── Panel / tarjeta ─────────────────────────────────── */
 .panel {
   background: var(--card);
   border: 1px solid var(--border);
@@ -50,6 +69,13 @@ header p {
   margin-bottom: 20px;
 }
 
+.panel h2,
+.panel h3 {
+  margin-top: 0;
+  color: var(--nav);
+}
+
+/* ── Formulario ──────────────────────────────────────── */
 .row {
   display: grid;
   gap: 8px;
@@ -70,6 +96,7 @@ header p {
 
 .check-row input {
   width: auto;
+  accent-color: var(--accent);
 }
 
 .hint {
@@ -86,8 +113,18 @@ header p {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 0.95rem;
+  color: var(--text);
+  transition: border-color 0.2s;
 }
 
+.row input:focus,
+.row textarea:focus,
+.row select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* ── Botones ─────────────────────────────────────────── */
 .actions {
   display: flex;
   gap: 12px;
@@ -99,15 +136,49 @@ button.small {
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  padding: 10px 16px;
+  padding: 10px 18px;
   font-weight: 600;
+  font-size: 0.95rem;
   color: #fff;
   background: var(--primary);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+button.primary {
+  background: var(--primary);
+}
+
+button.primary:hover {
+  background: var(--primary-strong);
+}
+
+/* Botón de acción destacada — naranja */
+button.accent {
+  background: var(--accent);
+}
+
+button.accent:hover {
+  background: var(--accent-hover);
+  color: var(--text);
+}
+
+/* Puerta: abrir usa naranja como acción prominente */
+#open-gate-button {
+  background: var(--accent);
+}
+
+#open-gate-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--text);
 }
 
 button.secondary,
 button.small.secondary {
   background: #6b7280;
+}
+
+button.secondary:hover {
+  background: #4b5563;
 }
 
 button.danger,
@@ -121,9 +192,15 @@ button.small {
 }
 
 button:hover {
-  opacity: 0.95;
+  opacity: 0.92;
 }
 
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Tabla de productos ──────────────────────────────── */
 #products-table {
   width: 100%;
   border-collapse: collapse;
@@ -139,10 +216,12 @@ button:hover {
 #products-table th {
   color: var(--muted);
   font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #products-table tr:hover {
-  background: #f3f4f6;
+  background: #f5f5f5;
 }
 
 .empty {
@@ -156,6 +235,7 @@ button:hover {
   flex-wrap: wrap;
 }
 
+/* ── Alertas ─────────────────────────────────────────── */
 .alert {
   padding: 12px 16px;
   border-radius: 12px;
@@ -176,143 +256,7 @@ button:hover {
   display: none;
 }
 
-/* Modal Styles */
-.modal.hidden {
-  display: none;
-}
-
-.modal {
-  display: flex;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.3s ease-in;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.modal-content {
-  background: var(--card);
-  border-radius: 16px;
-  max-width: 600px;
-  width: 90%;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(30px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 24px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-.close-button {
-  background: none;
-  border: none;
-  font-size: 2rem;
-  cursor: pointer;
-  color: var(--muted);
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.close-button:hover {
-  color: var(--text);
-}
-
-.modal-body {
-  padding: 24px;
-}
-
-.modal-section {
-  margin-bottom: 24px;
-}
-
-.modal-section:last-child {
-  margin-bottom: 0;
-}
-
-.modal-section h3 {
-  margin: 0 0 16px;
-  font-size: 1.1rem;
-  color: var(--text);
-}
-
-#modal-schedules-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 12px;
-}
-
-#modal-schedules-table th,
-#modal-schedules-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  font-size: 0.9rem;
-}
-
-#modal-schedules-table th {
-  color: var(--muted);
-  font-weight: 600;
-}
-
-#modal-schedules-table tr:hover {
-  background: #f3f4f6;
-}
-
-/* Toggle form button styling */
-#toggle-form-button {
-  margin-bottom: 16px;
-}
-
-/* Primary button style */
-button.primary {
-  background: var(--primary);
-}
-
-button.primary:hover {
-  background: var(--primary-strong);
-}
-
-/* Arduino connection status */
+/* ── Estado de conexión ──────────────────────────────── */
 .connection-status {
   display: flex;
   align-items: center;
@@ -330,11 +274,137 @@ button.primary:hover {
   background: var(--border);
 }
 
-.status-dot.connected { background: var(--success); }
+.status-dot.connected    { background: var(--success); }
 .status-dot.disconnected { background: var(--danger); }
-.status-dot.demo { background: #f59e0b; }
+.status-dot.demo         { background: var(--pet-gold); }
 
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+/* ── Modal ───────────────────────────────────────────── */
+.modal.hidden {
+  display: none;
+}
+
+.modal {
+  display: flex;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(31, 78, 121, 0.45);
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal-content {
+  background: var(--card);
+  border-radius: 16px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(31, 78, 121, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--nav);
+  border-radius: 16px 16px 0 0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: #ffffff;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: var(--indicator);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.close-button:hover {
+  color: #ffffff;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-section {
+  margin-bottom: 24px;
+}
+
+.modal-section:last-child {
+  margin-bottom: 0;
+}
+
+.modal-section h3 {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+  color: var(--nav);
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+/* ── Tabla de horarios (modal) ───────────────────────── */
+#modal-schedules-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+#modal-schedules-table th,
+#modal-schedules-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+#modal-schedules-table th {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#modal-schedules-table tr:hover {
+  background: #f5f5f5;
+}
+
+/* ── Toggle form button ──────────────────────────────── */
+#toggle-form-button {
+  margin-bottom: 16px;
+  background: var(--accent);
+}
+
+#toggle-form-button:hover {
+  background: var(--accent-hover);
+  color: var(--text);
 }

@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Control de Productos</title>
+  <title>Smart Pet Home</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Control de Productos</h1>
-      <p>Administra productos y envía notificaciones a Telegram.</p>
+      <div class="header-brand">
+        <img src="logo.png.png" alt="Smart Pet Home" class="brand-logo" />
+      </div>
     </header>
 
     <section class="panel">
@@ -47,6 +48,7 @@
           <select id="type" required>
             <option value="">Selecciona un tipo</option>
             <option value="puerta">Puerta</option>
+            <option value="sensor">Sensor de Movimiento</option>
             <option value="otro">Otro</option>
           </select>
         </div>
@@ -75,13 +77,87 @@
     </section>
     <section class="panel">
       <h2>Control de Puerta</h2>
+      <div class="connection-status">
+        <span id="serial-dot" class="status-dot"></span>
+        <span id="serial-status">Verificando conexión...</span>
+      </div>
+      <div class="connection-status" id="arduino-response-row" style="display:none">
+        <span style="color:#6b7280;font-size:0.85rem">Arduino:</span>
+        <code id="arduino-last-msg" style="font-size:0.85rem"></code>
+      </div>
+      <p id="gate-no-connection" class="hint hidden">Arduino no conectado. Revisa el cable y que <code>ARDUINO_PORT</code> esté configurado en el archivo <code>.env</code>.</p>
       <div class="row">
-        <button id="open-gate-button">Abrir puerta (manual)</button>
-        <button id="close-gate-button" class="secondary">Cerrar puerta (manual)</button>
+        <button id="open-gate-button" disabled>Abrir puerta (manual)</button>
+        <button id="close-gate-button" class="secondary" disabled>Cerrar puerta (manual)</button>
       </div>
       <div class="row">
         <strong>Estado puerta:</strong> <span id="gate-status">Desconocido</span>
       </div>
+    </section>
+    
+    <section class="panel">
+      <h2>Sensor de Movimiento (Láser)</h2>
+      <div class="connection-status">
+        <span id="sensor-status-dot" class="status-dot"></span>
+        <span id="sensor-status-text">Cargando...</span>
+  </div>
+  <div class="row">
+    <strong>Último evento:</strong> <span id="sensor-last-event">---</span>
+  </div>
+  <div class="row">
+    <strong>Valor del sensor:</strong> <span id="sensor-last-value">---</span>
+  </div>
+  <div class="row">
+    <strong>Hora:</strong> <span id="sensor-last-time">---</span>
+  </div>
+  <div class="row">
+    <label class="check-row">
+      <input id="sensor-notify-toggle" type="checkbox" />
+      Activar notificaciones por Telegram (falta de movimiento)
+    </label>
+  </div>
+  <div class="actions">
+    <button id="refresh-sensor-btn" class="secondary">Refrescar</button>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Historial de Eventos - Sensor de Movimiento</h3>
+  <table id="sensor-history-table">
+    <thead>
+      <tr><th>Fecha/Hora</th><th>Evento</th><th>Valor</th><th>Notificación</th></tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="4" class="empty">Cargando historial...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+    <section class="panel">
+      <h2>Telegram</h2>
+      <form id="telegram-form">
+        <div class="row">
+          <label>Numero telefonico</label>
+          <input id="telegram-phone" type="tel" placeholder="+502 0000 0000" />
+        </div>
+        <div class="row">
+          <label>Bot token</label>
+          <input id="telegram-bot-token" type="password" placeholder="Token de BotFather" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label>Chat ID</label>
+          <input id="telegram-chat-id" type="text" placeholder="Chat ID de Telegram" />
+        </div>
+        <label class="check-row">
+          <input id="telegram-enabled" type="checkbox" />
+          Enviar notificaciones al abrir y cerrar
+        </label>
+        <p class="hint">Telegram Bot API envia por chat_id. El numero queda guardado como referencia del contacto.</p>
+        <div class="actions">
+          <button type="submit">Guardar Telegram</button>
+          <button type="button" id="telegram-test-button" class="secondary">Enviar prueba</button>
+        </div>
+      </form>
     </section>
 
     <!-- Modal para editar producto -->
@@ -103,8 +179,16 @@
             <select id="modal-type">
               <option value="">Selecciona un tipo</option>
               <option value="puerta">Puerta</option>
+              <option value="sensor">Sensor de Movimiento</option>
               <option value="otro">Otro</option>
             </select>
+            </div>
+            <div class="row">
+              <label>Cantidad</label>
+              <input id="modal-quantity" type="number" min="0" value="0" />
+            </div>
+            <div class="row">
+              <label>Estado</label>
               <select id="modal-status">
                 <option value="activo">Activo</option>
                 <option value="agotado">Agotado</option>
