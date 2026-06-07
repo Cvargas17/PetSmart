@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const { SerialPort } = require('serialport');
 const schedule = require('node-schedule');
+const mqtt = require('mqtt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,18 @@ if (!dbExists) {
       console.error('Error al crear la tabla products:', err.message);
     } else {
       console.log('Base de datos inicializada en', DB_PATH);
+    }
+  });
+
+  // Insert default communication system product if not present
+  db.get(`SELECT id FROM products WHERE name = ?`, ['sistema de comunicación'], (err, row) => {
+    if (err) return console.error('Error comprobando producto por defecto:', err.message);
+    if (!row) {
+      db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
+        ['sistema de comunicación', '', 1, 'activo', 'Sistema de comunicación- Pulsa el botón para hablar'], (ierr) => {
+          if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
+          else console.log('Producto por defecto "sistema de comunicación" agregado.');
+        });
     }
   });
 }
@@ -85,6 +98,18 @@ db.run(`
     `INSERT OR IGNORE INTO telegram_settings (id, phone, bot_token, chat_id, enabled, updated_at) VALUES (1, '', ?, ?, ?, CURRENT_TIMESTAMP)`,
     [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? 1 : 0]
   );
+
+  // Ensure default communication system product exists (useful if DB already existed)
+  db.get(`SELECT id FROM products WHERE name = ?`, ['sistema de comunicación'], (err, row) => {
+    if (err) return console.error('Error comprobando producto por defecto:', err.message);
+    if (!row) {
+      db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
+        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Sistema de comunicación (Raspberry Pi Pico W) — botón Hablar que emite sonido en la web.'], (ierr) => {
+          if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
+          else console.log('Producto por defecto "sistema de comunicación" agregado.');
+        });
+    }
+  });
 });
 
 db.run(`
@@ -121,6 +146,19 @@ let serialReady = false;
 let lastArduinoMessage = '';
 const scheduledJobs = new Map();
 const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
+
+// MQTT setup
+const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
+const MQTT_TOPIC = process.env.MQTT_TOPIC || 'alerta';
+let mqttClient = null;
+try {
+  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
+  mqttClient.on('connect', () => console.log('Conectado a broker MQTT:', MQTT_BROKER));
+  mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
+} catch (e) {
+  console.error('No se pudo inicializar MQTT:', e.message);
+  mqttClient = null;
+}
 
 function runDb(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -550,70 +588,43 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
   });
 });
 
-// ===== SENSOR DE MOVIMIENTO ENDPOINTS =====
+// Endpoint para hacer que el sistema de comunicación emita sonido (publica MQTT y notifica Telegram)
+app.post('/api/communication/speak', async (req, res) => {
+  try {
+    const { productId, frequency = 880, duration = 0.9 } = req.body || {};
+    console.log('📢 POST /api/communication/speak:', { productId, frequency, duration });
+    
+    // publish MQTT message
+    if (!mqttClient) {
+      console.warn('❌ MQTT client not initialized');
+    } else if (!mqttClient.connected) {
+      console.warn('⚠️  MQTT no conectado, intentando continuar');
+    } else {
+      const payload = JSON.stringify({ f: Number(frequency) || 0, d: Number(duration) || 0.9 });
+      console.log(`📤 Publicando en MQTT topic "${MQTT_TOPIC}":`, payload);
+      mqttClient.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) => {
+        if (err) {
+          console.error('❌ Error publicando MQTT:', err.message);
+        } else {
+          console.log('✅ Mensaje publicado en MQTT exitosamente');
+        }
+      });
+    }
 
-app.post('/api/sensor/motion', (req, res) => {
-  const { estado, valor, alerta } = req.body;
-  if (!estado) {
-    return res.status(400).json({ error: 'estado es obligatorio' });
+    // send Telegram notification (if configured)
+    const prodRow = await getDb('SELECT name FROM products WHERE id = ?', [productId || 1]);
+    const pname = prodRow?.name || 'sistema de comunicación';
+    try {
+      await sendTelegramMessage(`Se está hablando en ${pname}`, { force: true });
+    } catch (tgErr) {
+      console.error('Error enviando Telegram:', tgErr.message);
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error en /api/communication/speak:', e.message);
+    res.status(500).json({ error: e.message });
   }
-  
-  db.run(
-    `INSERT INTO motion_events (estado, valor, alerta) VALUES (?, ?, ?)`,
-    [estado, valor || 0, alerta ? 1 : 0],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      
-      if (alerta) {
-        sendTelegramMessage(`🚨 ALERTA DE MOVIMIENTO\nEstado: ${estado}\nValor: ${valor}\nHora: ${new Date().toLocaleString()}`)
-          .catch(e => console.error('Error enviando Telegram:', e.message));
-      }
-      
-      res.json({ id: this.lastID });
-    }
-  );
-});
-
-app.get('/api/sensor/state', (req, res) => {
-  db.get(
-    `SELECT estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT 1`,
-    [],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(row || { estado: 'sin_datos', valor: 0, alerta: 0 });
-    }
-  );
-});
-
-app.get('/api/sensor/history', (req, res) => {
-  const limit = req.query.limit || 20;
-  db.all(
-    `SELECT id, estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT ?`,
-    [limit],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    }
-  );
-});
-
-app.get('/api/sensor/notify-setting', (req, res) => {
-  db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ enabled: row ? row.notify_enabled === 1 : true });
-  });
-});
-
-app.post('/api/sensor/notify-setting', (req, res) => {
-  const { enabled } = req.body;
-  db.run(
-    `UPDATE sensor_settings SET notify_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
-    [enabled ? 1 : 0],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    }
-  );
 });
 
 app.get('*', (req, res) => {
