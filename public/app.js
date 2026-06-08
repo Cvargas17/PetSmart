@@ -63,7 +63,12 @@ const gateNoConnectionEl = document.getElementById('gate-no-connection');
 const arduinoResponseRow = document.getElementById('arduino-response-row');
 const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 
+const communicationPanel = document.getElementById('communication-panel');
+const communicationDescription = document.getElementById('communication-description');
+const communicationSpeakButton = document.getElementById('communication-speak-button');
+
 let arduinoConnected = false;
+let communicationProduct = null;
 
 // Telegram elements
 const telegramForm = document.getElementById('telegram-form');
@@ -106,12 +111,13 @@ function toggleFormSection() {
 
 function renderProducts(products) {
   tableBody.innerHTML = '';
-  if (!products.length) {
+  const visibleProducts = products.filter(p => !/sistema de comunicaci/i.test(p.name));
+  if (!visibleProducts.length) {
     tableBody.innerHTML = '<tr><td colspan="6" class="empty">No hay productos registrados. Haz clic en "+ Agregar Producto" para crear uno.</td></tr>';
     return;
   }
 
-  products.forEach((product) => {
+  visibleProducts.forEach((product) => {
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>${product.name}</td>
@@ -121,16 +127,28 @@ function renderProducts(products) {
       <td>${product.notes || '-'}</td>
       <td class="actions-cell">
         <button class="small" data-action="open-details" data-id="${product.id}">Ver Detalles</button>
-        ${/sistema de comunicaci/i.test(product.name) ? `<button class="small" data-action="speak" data-id="${product.id}">Hablar</button>` : ''}
       </td>
     `;
     tableBody.appendChild(row);
   });
 }
 
+function updateCommunicationSection() {
+  if (!communicationProduct) {
+    communicationDescription.textContent = 'Sin sistema de comunicación configurado.';
+    communicationSpeakButton.disabled = true;
+    return;
+  }
+
+  communicationDescription.textContent = communicationProduct.notes || 'Sistema de comunicación activo.';
+  communicationSpeakButton.disabled = false;
+}
+
 async function loadProducts() {
   const products = await fetchProducts();
+  communicationProduct = products.find(p => /sistema de comunicaci/i.test(p.name));
   renderProducts(products);
+  updateCommunicationSection();
 }
 
 async function saveProduct(event) {
@@ -461,6 +479,8 @@ tableBody.addEventListener('click', async (event) => {
   }
 });
 
+// end of products events
+
 // Simple WebAudio beep for "Hablar"
 function playBeep({ frequency = 880, duration = 0.9, type = 'sine' } = {}) {
   try {
@@ -486,6 +506,29 @@ function playBeep({ frequency = 880, duration = 0.9, type = 'sine' } = {}) {
 }
 telegramForm.addEventListener('submit', saveTelegramSettings);
 telegramTestButton.addEventListener('click', testTelegramSettings);
+communicationSpeakButton?.addEventListener('click', async () => {
+  if (!communicationProduct) {
+    showAlert('No hay sistema de comunicación configurado.', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/communication/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId: communicationProduct.id, frequency: 880, duration: 0.9 })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error enviando señal de hablar.');
+    }
+
+    showAlert('Se emitió la señal para hablar.');
+  } catch (error) {
+    showAlert(error.message || 'Error enviando señal de hablar.', 'error');
+  }
+});
 
 // Event listeners for modal
 closeModalButton.addEventListener('click', closeProductModal);

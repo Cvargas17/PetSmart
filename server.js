@@ -86,7 +86,7 @@ if (!dbExists) {
     if (err) return console.error('Error comprobando producto por defecto:', err.message);
     if (!row) {
       db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
-        ['sistema de comunicación', '', 1, 'activo', 'Sistema de comunicación- Pulsa el botón para hablar'], (ierr) => {
+        ['sistema de comunicación', '', 1, 'activo', 'Habla con tu mascota'], (ierr) => {
           if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
           else console.log('Producto por defecto "sistema de comunicación" agregado.');
         });
@@ -142,7 +142,7 @@ db.run(`
     if (err) return console.error('Error comprobando producto por defecto:', err.message);
     if (!row) {
       db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
-        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Sistema de comunicación (Raspberry Pi Pico W) — botón Hablar que emite sonido en la web.'], (ierr) => {
+        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Habla con tu mascota'], (ierr) => {
           if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
           else console.log('Producto por defecto "sistema de comunicación" agregado.');
         });
@@ -626,7 +626,6 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
   });
 });
 
-// Endpoint para hacer que el sistema de comunicación emita sonido (publica MQTT y notifica Telegram)
 app.post('/api/communication/speak', async (req, res) => {
   try {
     const { productId, frequency = 880, duration = 0.9 } = req.body || {};
