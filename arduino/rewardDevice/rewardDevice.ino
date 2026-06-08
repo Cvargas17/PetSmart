@@ -10,17 +10,17 @@ const int buzzer = 5;
 const int servo = 6;
 int correct=-1;
 int correctGuesses=0;
-int limit=10;
-int stock=10;
+int limit=0;
+int stock=0;
 bool inHours= true;
 bool dispense = false;
 
 void dispenseTreat(bool command){
   digitalWrite(5, HIGH);
-  myServo.write(180);
+  myServo.write(0);
   delay(3000);
   digitalWrite(5,LOW);
-  myServo.write(0);
+  myServo.write(180);
   correct = random(2,5);
   if(command)
     correctGuesses++;
@@ -77,7 +77,7 @@ void setup() {
   pinMode(servo, OUTPUT);
 
   myServo.attach(servo);
-  myServo.write(0);
+  myServo.write(180);
   Serial.begin(9600);
 
   correct = random(2,5);

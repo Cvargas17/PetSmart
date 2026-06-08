@@ -42,9 +42,9 @@ let rewardStatus = {
   correctGuesses: 0
 };
 let rewardConfig = {
-  dailyLimit: 10,
-  startHour: '08:00',
-  endHour: '18:00'
+  dailyLimit: 0,
+  startHour: '00:00',
+  endHour: '00:00'
 };
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
@@ -928,7 +928,6 @@ app.post('/api/reward/dispense', async (req, res) => {
   try {
 
     await dispenseReward();
-
     res.json({
       success: true
     });

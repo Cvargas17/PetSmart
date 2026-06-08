@@ -88,16 +88,47 @@ rewardRefreshButton.addEventListener(
   loadRewardStatus
 );
 
-rewardDispenseButton.addEventListener(
-  'click',
-  async () => {
-    const res = await fetch(
-      '/api/reward/dispense',
-      {
+async function requestRewardDispense() {
+  try {
+    const res =
+      await fetch('/api/reward/dispense', {
         method: 'POST'
-      }
+      });
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo dispensar el premio.'
+      );
+    }
+
+    showAlert(
+      'Dispensando premio...'
+    );
+
+    setTimeout(
+      loadRewardStatus,
+      3500
+    );
+
+  } catch (e) {
+    console.error(
+      'Error dispensando premio:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
     );
   }
+}
+
+rewardDispenseButton.addEventListener(
+  'click',requestRewardDispense
 );
 
 rewardSaveConfigButton.addEventListener(
@@ -853,7 +884,7 @@ setTimeout(() => {
 // Actualizar cada 5 segundos
 setInterval(() => {
   loadSensorState();
-  loadRewardStatus();
+  //loadRewardStatus();
 }, 5000);
 
 
