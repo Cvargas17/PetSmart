@@ -4,7 +4,6 @@
 const int SERVO_PIN = 3;
 const int OPEN_ANGLE = 0;
 const int CLOSED_ANGLE = 360;
-const unsigned long OPEN_DURATION_MS = 3000;
 const unsigned long MOVE_DELAY_MS = 250; // tiempo para que el servo alcance la posicion
 
 Servo gateServo;
@@ -41,11 +40,6 @@ void handleCommand(const String &cmd) {
     Serial.println("OPENING");
     moveServo(OPEN_ANGLE);
     Serial.println("OPEN");
-    delay(OPEN_DURATION_MS);
-    moveServo(CLOSED_ANGLE);
-    Serial.println("CLOSED");
-    while (Serial.available()) Serial.read();
-    buffer = "";
   } else if (cmd.equalsIgnoreCase("CLOSE")) {
     Serial.println("CLOSING");
     moveServo(CLOSED_ANGLE);

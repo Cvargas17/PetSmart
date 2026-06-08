@@ -305,7 +305,7 @@ async function loadModalSchedules() {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${schedule.time || schedule.start || '-'}</td>
-        <td>${schedule.end || '-'}</td>
+        <td>${schedule.end_time || '-'}</td>
         <td>${schedule.enabled ? 'Sí' : 'No'}</td>
         <td class="actions-cell">
           <button class="small" data-id="${schedule.id}" data-action="toggle-schedule">
