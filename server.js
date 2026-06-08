@@ -647,16 +647,21 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
 
 app.post('/api/communication/speak', async (req, res) => {
   try {
-    const { productId, frequency = 880, duration = 0.9 } = req.body || {};
-    console.log('📢 POST /api/communication/speak:', { productId, frequency, duration });
-    
-    // publish MQTT message
+    const { productId, frequency = 880, duration = 0.9, action } = req.body || {};
+    const isStart = action === 'start';
+    const isStop = action === 'stop';
+    const payloadBody = isStop
+      ? { action: 'stop', f: 0, d: 0 }
+      : { action: 'start', f: Number(frequency) || 880, d: -1 };
+
+    console.log('📢 POST /api/communication/speak:', { productId, frequency, duration, action, payloadBody });
+
     if (!mqttClient) {
       console.warn('❌ MQTT client not initialized');
     } else if (!mqttClient.connected) {
       console.warn('⚠️  MQTT no conectado, intentando continuar');
     } else {
-      const payload = JSON.stringify({ f: Number(frequency) || 0, d: Number(duration) || 0.9 });
+      const payload = JSON.stringify(payloadBody);
       console.log(`📤 Publicando en MQTT topic "${MQTT_TOPIC}":`, payload);
       mqttClient.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) => {
         if (err) {
@@ -667,13 +672,14 @@ app.post('/api/communication/speak', async (req, res) => {
       });
     }
 
-    // send Telegram notification (if configured)
-    const prodRow = await getDb('SELECT name FROM products WHERE id = ?', [productId || 1]);
-    const pname = prodRow?.name || 'sistema de comunicación';
-    try {
-      await sendTelegramMessage(`Se está hablando en ${pname}`, { force: true });
-    } catch (tgErr) {
-      console.error('Error enviando Telegram:', tgErr.message);
+    if (isStart) {
+      const prodRow = await getDb('SELECT name FROM products WHERE id = ?', [productId || 1]);
+      const pname = prodRow?.name || 'sistema de comunicación';
+      try {
+        await sendTelegramMessage(`Se está hablando en ${pname}`, { force: true });
+      } catch (tgErr) {
+        console.error('Error enviando Telegram:', tgErr.message);
+      }
     }
 
     res.json({ success: true });

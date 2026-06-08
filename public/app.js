@@ -69,6 +69,7 @@ const communicationSpeakButton = document.getElementById('communication-speak-bu
 
 let arduinoConnected = false;
 let communicationProduct = null;
+let communicationMode = false;
 
 // Telegram elements
 const telegramForm = document.getElementById('telegram-form');
@@ -144,11 +145,18 @@ function updateCommunicationSection() {
   communicationSpeakButton.disabled = false;
 }
 
+function setCommunicationMode(active) {
+  communicationMode = !!active;
+  communicationSpeakButton.textContent = communicationMode ? 'Hablando' : 'Hablar';
+  communicationSpeakButton.classList.toggle('active', communicationMode);
+}
+
 async function loadProducts() {
   const products = await fetchProducts();
   communicationProduct = products.find(p => /sistema de comunicaci/i.test(p.name));
   renderProducts(products);
   updateCommunicationSection();
+  setCommunicationMode(false);
 }
 
 async function saveProduct(event) {
@@ -512,11 +520,19 @@ communicationSpeakButton?.addEventListener('click', async () => {
     return;
   }
 
+  const action = communicationMode ? 'stop' : 'start';
+  const payload = {
+    productId: communicationProduct.id,
+    action,
+    frequency: 880,
+    duration: action === 'start' ? -1 : 0
+  };
+
   try {
     const res = await fetch('/api/communication/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productId: communicationProduct.id, frequency: 880, duration: 0.9 })
+      body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
@@ -524,7 +540,8 @@ communicationSpeakButton?.addEventListener('click', async () => {
       throw new Error(data.error || 'Error enviando señal de hablar.');
     }
 
-    showAlert('Se emitió la señal para hablar.');
+    setCommunicationMode(!communicationMode);
+    showAlert(action === 'start' ? 'Hablando...' : 'Se detuvo la comunicación.');
   } catch (error) {
     showAlert(error.message || 'Error enviando señal de hablar.', 'error');
   }
