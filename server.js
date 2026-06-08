@@ -150,7 +150,7 @@ db.run(`
 });
 
 // Serial port setup
-const ARDUINO_PORT = process.env.ARDUINO_PORT || 'COM3';
+const ARDUINO_PORT = process.env.ARDUINO_PORT || 'DEMO';
 let arduinoPort = null;
 let serialReady = false;
 let lastArduinoMessage = '';
