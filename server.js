@@ -99,12 +99,15 @@ db.run(`
   CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     time TEXT NOT NULL,
+    end_time TEXT,
     enabled INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   )
 `, (err) => {
   if (err) console.error('Error creando tabla schedules:', err.message);
 });
+// Add end_time column if it doesn't exist (migration for existing DBs)
+db.run(`ALTER TABLE schedules ADD COLUMN end_time TEXT`, () => {});
 
 // gate_state table
 db.run(`
@@ -296,15 +299,10 @@ function sendGateCommand(cmd, lastControl = 'manual') {
       try {
         const now = new Date();
         if (cmd === 'OPEN') {
-          const lockedUntil = new Date(now.getTime() + OPEN_DURATION_MS).toISOString();
-          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`, ['open', lastControl, lockedUntil]);
-          notifyGateState('open', lastControl);
-          setTimeout(() => {
-            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
-              if (err) console.error('Error actualizando estado:', err.message);
-              else notifyGateState('closed', lastControl);
-            });
-          }, OPEN_DURATION_MS + 200);
+          db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['open', lastControl], (err) => {
+            if (err) console.error('Error actualizando estado:', err.message);
+            else notifyGateState('open', lastControl);
+          });
         } else if (cmd === 'CLOSE') {
           db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
             if (err) console.error('Error actualizando estado:', err.message);
@@ -332,16 +330,10 @@ function sendGateCommand(cmd, lastControl = 'manual') {
         try {
           const now = new Date();
           if (cmd === 'OPEN') {
-            const lockedUntil = new Date(now.getTime() + OPEN_DURATION_MS).toISOString();
-            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`, ['open', lastControl, lockedUntil]);
-            notifyGateState('open', lastControl);
-            // schedule a DB update to mark closed after OPEN_DURATION_MS so server state matches servo
-            setTimeout(() => {
-              db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
-                if (err) console.error('Error al actualizar estado a closed después de OPEN duration:', err.message);
-                else notifyGateState('closed', lastControl);
-              });
-            }, OPEN_DURATION_MS + 200);
+            db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['open', lastControl], (err) => {
+              if (err) console.error('Error actualizando estado:', err.message);
+              else notifyGateState('open', lastControl);
+            });
           } else if (cmd === 'CLOSE') {
             db.run(`INSERT OR REPLACE INTO gate_state (id, state, last_control, locked_until, updated_at) VALUES (1, ?, ?, NULL, CURRENT_TIMESTAMP)`, ['closed', lastControl], (err) => {
               if (err) console.error('Error actualizando estado:', err.message);
@@ -382,25 +374,45 @@ function scheduleJobFromRow(row) {
   cancelScheduledJob(row.id);
   const [hour, minute] = (row.time || '00:00').split(':').map(Number);
   if (Number.isNaN(hour) || Number.isNaN(minute)) return;
-  // cron: second minute hour day month dayOfWeek
-  const cron = `0 ${minute} ${hour} * * *`;
-  const job = schedule.scheduleJob(cron, async () => {
-    console.log('Ejecutando schedule id', row.id, '-> abrir puerta');
+  const startJob = schedule.scheduleJob(`0 ${minute} ${hour} * * *`, async () => {
+    console.log('Ejecutando schedule id', row.id, '-> cerrar puerta');
     try {
-      // set last_control to schedule and update state (sendGateCommand will also update)
-      await sendGateCommand('OPEN', 'schedule');
-      console.log('Comando OPEN enviado por schedule', row.id);
+      const gateState = await getGateState();
+      if (gateState.state !== 'closed') {
+        await sendGateCommand('CLOSE', 'schedule');
+        console.log('Comando CLOSE enviado por schedule', row.id);
+      } else {
+        console.log('Schedule id', row.id, '-> puerta ya estaba cerrada');
+      }
     } catch (e) {
-      console.error('Error enviando comando OPEN desde schedule:', e.message);
+      console.error('Error enviando comando CLOSE desde schedule:', e.message);
     }
   });
-  scheduledJobs.set(row.id, job);
+
+  let endJob = null;
+  if (row.end_time) {
+    const [eHour, eMinute] = row.end_time.split(':').map(Number);
+    if (!Number.isNaN(eHour) && !Number.isNaN(eMinute)) {
+      endJob = schedule.scheduleJob(`0 ${eMinute} ${eHour} * * *`, async () => {
+        console.log('Fin de schedule id', row.id, '-> abrir puerta');
+        try {
+          await sendGateCommand('OPEN', 'schedule');
+          console.log('Comando OPEN enviado al fin de schedule', row.id);
+        } catch (e) {
+          console.error('Error enviando comando OPEN al fin de schedule:', e.message);
+        }
+      });
+    }
+  }
+
+  scheduledJobs.set(row.id, { startJob, endJob });
 }
 
 function cancelScheduledJob(id) {
-  const job = scheduledJobs.get(Number(id));
-  if (job) {
-    job.cancel();
+  const entry = scheduledJobs.get(Number(id));
+  if (entry) {
+    if (entry.startJob) entry.startJob.cancel();
+    if (entry.endJob) entry.endJob.cancel();
     scheduledJobs.delete(Number(id));
   }
 }
@@ -565,22 +577,26 @@ app.get('/api/gate/connection', (req, res) => {
 });
 
 app.get('/api/gate/schedules', (req, res) => {
-  db.all('SELECT id, time, enabled, created_at FROM schedules ORDER BY created_at DESC', [], (err, rows) => {
+  db.all('SELECT id, time, end_time, enabled, created_at FROM schedules ORDER BY created_at DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
 app.post('/api/gate/schedules', (req, res) => {
-  const { time, enabled } = req.body;
-  if (!time || !/^(?:[01]?\d|2[0-3]):00$/.test(time)) {
-    return res.status(400).json({ error: 'time es requerido en formato HH:00' });
+  const { time, end, enabled } = req.body;
+  const timeRe = /^(?:[01]?\d|2[0-3]):[0-5]\d$/;
+  if (!time || !timeRe.test(time)) {
+    return res.status(400).json({ error: 'time es requerido en formato HH:MM' });
   }
-  const sql = `INSERT INTO schedules (time, enabled) VALUES (?, ?)`;
-  db.run(sql, [time, enabled ? 1 : 0], function (err) {
+  if (end && !timeRe.test(end)) {
+    return res.status(400).json({ error: 'end es requerido en formato HH:MM' });
+  }
+  const sql = `INSERT INTO schedules (time, end_time, enabled) VALUES (?, ?, ?)`;
+  db.run(sql, [time, end || null, enabled ? 1 : 0], function (err) {
     if (err) return res.status(500).json({ error: err.message });
     const id = this.lastID;
-    if (enabled) scheduleJobFromRow({ id, time, enabled: 1 });
+    if (enabled) scheduleJobFromRow({ id, time, end_time: end || null, enabled: 1 });
     res.json({ id });
   });
 });
@@ -588,15 +604,18 @@ app.post('/api/gate/schedules', (req, res) => {
 // Update schedule (time and enabled)
 app.put('/api/gate/schedules/:id', (req, res) => {
   const { id } = req.params;
-  const { time, enabled } = req.body;
-  if (!time || !/^(?:[01]?\d|2[0-3]):00$/.test(time)) {
-    return res.status(400).json({ error: 'time es requerido en formato HH:00' });
+  const { time, end, enabled } = req.body;
+  const timeRe = /^(?:[01]?\d|2[0-3]):[0-5]\d$/;
+  if (!time || !timeRe.test(time)) {
+    return res.status(400).json({ error: 'time es requerido en formato HH:MM' });
   }
-  db.run('UPDATE schedules SET time = ?, enabled = ? WHERE id = ?', [time, enabled ? 1 : 0, id], function (err) {
+  if (end && !timeRe.test(end)) {
+    return res.status(400).json({ error: 'end es requerido en formato HH:MM' });
+  }
+  db.run('UPDATE schedules SET time = ?, end_time = ?, enabled = ? WHERE id = ?', [time, end || null, enabled ? 1 : 0, id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    // cancel existing job then reschedule if enabled
     cancelScheduledJob(id);
-    if (enabled) scheduleJobFromRow({ id: Number(id), time, enabled: 1 });
+    if (enabled) scheduleJobFromRow({ id: Number(id), time, end_time: end || null, enabled: 1 });
     res.json({ changes: this.changes });
   });
 });
@@ -604,14 +623,14 @@ app.put('/api/gate/schedules/:id', (req, res) => {
 // Toggle enabled state
 app.patch('/api/gate/schedules/:id/toggle', (req, res) => {
   const { id } = req.params;
-  db.get('SELECT enabled, time FROM schedules WHERE id = ?', [id], (err, row) => {
+  db.get('SELECT enabled, time, end_time FROM schedules WHERE id = ?', [id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!row) return res.status(404).json({ error: 'Schedule no encontrado' });
     const newEnabled = row.enabled ? 0 : 1;
     db.run('UPDATE schedules SET enabled = ? WHERE id = ?', [newEnabled, id], function (uerr) {
       if (uerr) return res.status(500).json({ error: uerr.message });
       cancelScheduledJob(id);
-      if (newEnabled) scheduleJobFromRow({ id: Number(id), time: row.time, enabled: 1 });
+      if (newEnabled) scheduleJobFromRow({ id: Number(id), time: row.time, end_time: row.end_time, enabled: 1 });
       res.json({ id: Number(id), enabled: !!newEnabled });
     });
   });
