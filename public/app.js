@@ -1,3 +1,18 @@
+// Redirect to login on any 401 response
+const _originalFetch = window.fetch;
+window.fetch = async function (...args) {
+  const res = await _originalFetch(...args);
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+  }
+  return res;
+};
+
+document.getElementById('logout-btn')?.addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+});
+
 // Form and Table Elements
 const form = document.getElementById('product-form');
 const tableBody = document.querySelector('#products-table tbody');

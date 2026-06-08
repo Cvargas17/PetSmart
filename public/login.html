@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Pet Home — Iniciar sesión</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .login-wrapper {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+    }
+    .login-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .login-logo {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+    .login-logo img {
+      height: 100px;
+      width: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.15));
+    }
+    .login-title {
+      text-align: center;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--primary-strong);
+      margin: 0 0 28px;
+    }
+    .login-card .row {
+      margin-bottom: 16px;
+    }
+    .login-card label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .login-card input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .login-card button[type="submit"] {
+      width: 100%;
+      margin-top: 8px;
+    }
+    .login-error {
+      background: #fee2e2;
+      color: var(--danger);
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.875rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .login-error.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">
+        <img src="logo.png.png" alt="Smart Pet Home" />
+      </div>
+      <p class="login-title">Iniciar sesión</p>
+      <div id="login-error" class="login-error"></div>
+      <form id="login-form">
+        <div class="row">
+          <label for="username">Usuario</label>
+          <input id="username" type="text" autocomplete="username" placeholder="Usuario" required />
+        </div>
+        <div class="row">
+          <label for="password">Contraseña</label>
+          <input id="password" type="password" autocomplete="current-password" placeholder="Contraseña" required />
+        </div>
+        <button type="submit" id="login-btn">Entrar</button>
+      </form>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('login-form');
+    const errorBox = document.getElementById('login-error');
+    const btn = document.getElementById('login-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      btn.textContent = 'Verificando...';
+      errorBox.classList.remove('visible');
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          const data = await res.json();
+          errorBox.textContent = data.error || 'Error al iniciar sesión';
+          errorBox.classList.add('visible');
+        }
+      } catch {
+        errorBox.textContent = 'Error de conexión al servidor';
+        errorBox.classList.add('visible');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    });
+  </script>
+</body>
+</html>

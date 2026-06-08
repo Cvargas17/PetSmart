@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
+const crypto = require('crypto');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
@@ -11,9 +13,45 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+const LOGIN_USER = process.env.LOGIN_USER || 'admin';
+const LOGIN_PASS = process.env.LOGIN_PASS || 'admin123';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 app.use(express.json());
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, maxAge: 24 * 60 * 60 * 1000 }
+}));
+
+function requireAuth(req, res, next) {
+  if (req.session?.authenticated) return next();
+  if (req.path === '/login.html' || req.path === '/api/login') return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'No autenticado' });
+  if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
+  next();
+}
+
+app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (
+    typeof username === 'string' && typeof password === 'string' &&
+    username === LOGIN_USER && password === LOGIN_PASS
+  ) {
+    req.session.authenticated = true;
+    res.json({ ok: true });
+  } else {
+    res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
 
 const DB_PATH = path.join(__dirname, 'db.sqlite');
 const dbExists = fs.existsSync(DB_PATH);
