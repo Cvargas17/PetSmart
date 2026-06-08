@@ -49,39 +49,62 @@ const arduinoResponseRow = document.getElementById('arduino-response-row');
 const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 
 // Reward device elements
+
+const rewardStock =
+  document.getElementById('reward-stock');
+
+const rewardGuesses =
+  document.getElementById('reward-guesses');
+
+const rewardLimit =
+  document.getElementById('reward-limit');
+
 const rewardRefreshButton =
-  document.getElementById(
-    'reward-refresh-button'
-  );
+  document.getElementById('reward-refresh-button');
+
+const rewardDispenseButton =
+  document.getElementById('reward-dispense-button');
+
+const rewardSaveConfigButton =
+  document.getElementById('reward-save-button');
 
 rewardRefreshButton.addEventListener(
   'click',
   loadRewardStatus
 );
-const rewardDispenseButton =
-    document.getElementById(
-        'reward-dispense-button'
-    );
 
 rewardDispenseButton.addEventListener(
-    /*'click',
-    attemptDispenseReward*/
-      'click',
+  'click',
   async () => {
-
-    console.log('ANTES FETCH');
-
     const res = await fetch(
       '/api/reward/dispense',
       {
         method: 'POST'
       }
     );
-
-    console.log('DESPUES FETCH', res.status);
   }
 );
 
+rewardSaveConfigButton.addEventListener(
+  'click', saveRewardConfig
+);
+
+console.log({
+  rewardStock,
+  rewardGuesses,
+  rewardLimit,
+  rewardRefreshButton,
+  rewardDispenseButton
+});
+const rewardStart =
+  document.getElementById(
+    'reward-start'
+  );
+
+const rewardEnd =
+  document.getElementById(
+    'reward-end'
+  );
 
 let arduinoConnected = false;
 
@@ -773,23 +796,101 @@ setTimeout(() => {
 // Actualizar cada 5 segundos
 setInterval(() => {
   loadSensorState();
+  loadRewardStatus();
 }, 5000);
 
 
 //Reward device system functions
 async function loadRewardStatus() {
-  const res = await fetch('/api/reward/status');
-  const data = await res.json();
+ try {
+    const res =
+      await fetch('/api/reward/status');
 
-  rewardStock.value = data.stock;
-  rewardGuesses.value = data.correctGuesses;
-  rewardLimit.value = data.dailyLimit;
-}
-async function attemptDispenseReward() {  
-   await fetch(
-    '/api/reward/dispense',
-    {
-      method: 'POST'
+    if (!res.ok) {
+      throw new Error(
+        'No se pudo cargar el estado'
+      );
     }
-  );
+
+    const data =
+      await res.json();
+
+    rewardStock.value =
+      data.stock;
+
+    rewardGuesses.value =
+      data.correctGuesses;
+
+    rewardLimit.value =
+      data.dailyLimit;
+
+  } catch (e) {
+    console.error(
+      'Error cargando recompensa:',
+      e
+    );
+  }
+}
+
+async function saveRewardConfig() {
+  try {
+    const payload = {
+      stock:
+        Number(
+          rewardStock.value
+        ),
+
+      dailyLimit:
+        Number(
+          rewardLimit.value
+        ),
+
+      startHour:
+        rewardStart.value,
+
+      endHour:
+        rewardEnd.value
+    };
+
+    const res =
+      await fetch(
+        '/api/reward/config',
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type':
+              'application/json'
+          },
+          body:
+            JSON.stringify(
+              payload
+            )
+        }
+      );
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo guardar la configuración.'
+      );
+    }
+
+    showAlert(
+      'Configuración de recompensas guardada.'
+    );
+
+  } catch (e) {
+    console.error(
+      'Error guardando recompensas:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
 }

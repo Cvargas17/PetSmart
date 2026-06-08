@@ -2,13 +2,12 @@
 #include <Arduino_JSON.h>
 
 Servo myServo;
+//const String ID = "3001";
 const int bButton = 2;
 const int gButton = 3;
 const int oButton = 4;
 const int buzzer = 5;
 const int servo = 6;
-const int pot = A0;
-int potVal=0;
 int correct=-1;
 int correctGuesses=0;
 int limit=10;
@@ -22,13 +21,11 @@ void dispenseTreat(bool command){
   delay(3000);
   digitalWrite(5,LOW);
   myServo.write(0);
-  correct = int(random(200,449))/100;
-  if(command){
+  correct = random(2,5);
+  if(command)
     correctGuesses++;
-  }
-  if(dispense){
-    dispense=false;
-  }
+  if(dispense)
+      dispense=false;
   stock--;
 }
 
@@ -56,7 +53,7 @@ void readJSon(){
     }
 
     if (data.hasOwnProperty("stock")) {
-      dispense = int(data["stock"]);
+      stock = int(data["stock"]);
     }
 
   }
@@ -64,6 +61,7 @@ void readJSon(){
 
 void writeJSon(){
   JSONVar status;
+  //status["ID"] = ID;
   status["stock"] = stock;
   status["correctGuesses"] = correctGuesses;
   Serial.println(JSON.stringify(status));
@@ -81,14 +79,16 @@ void setup() {
   myServo.attach(servo);
   myServo.write(0);
   Serial.begin(9600);
-  
-  correct = int(random(200,449))/100;
-  Serial.println(correct);
+
+  correct = random(2,5);
+
+  delay(1500);
+  writeJSon();  
 }
 
 void loop() {
   readJSon();
-  if(((correctGuesses<=limit and inHours and digitalRead(correct) == HIGH) or dispense) and stock>0){
+  if(((correctGuesses<limit and inHours and digitalRead(correct) == HIGH) or dispense) and stock>0){
     dispenseTreat(digitalRead(correct) == HIGH);
     writeJSon();
   }
