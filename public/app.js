@@ -48,6 +48,41 @@ const gateNoConnectionEl = document.getElementById('gate-no-connection');
 const arduinoResponseRow = document.getElementById('arduino-response-row');
 const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 
+// Reward device elements
+const rewardRefreshButton =
+  document.getElementById(
+    'reward-refresh-button'
+  );
+
+rewardRefreshButton.addEventListener(
+  'click',
+  loadRewardStatus
+);
+const rewardDispenseButton =
+    document.getElementById(
+        'reward-dispense-button'
+    );
+
+rewardDispenseButton.addEventListener(
+    /*'click',
+    attemptDispenseReward*/
+      'click',
+  async () => {
+
+    console.log('ANTES FETCH');
+
+    const res = await fetch(
+      '/api/reward/dispense',
+      {
+        method: 'POST'
+      }
+    );
+
+    console.log('DESPUES FETCH', res.status);
+  }
+);
+
+
 let arduinoConnected = false;
 
 // Telegram elements
@@ -739,3 +774,22 @@ setTimeout(() => {
 setInterval(() => {
   loadSensorState();
 }, 5000);
+
+
+//Reward device system functions
+async function loadRewardStatus() {
+  const res = await fetch('/api/reward/status');
+  const data = await res.json();
+
+  rewardStock.value = data.stock;
+  rewardGuesses.value = data.correctGuesses;
+  rewardLimit.value = data.dailyLimit;
+}
+async function attemptDispenseReward() {  
+   await fetch(
+    '/api/reward/dispense',
+    {
+      method: 'POST'
+    }
+  );
+}

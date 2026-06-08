@@ -140,7 +140,7 @@ db.run(`
 });
 
 // Serial port setup
-const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
+const ARDUINO_PORT = process.env.ARDUINO_PORT || 'COM3';
 let arduinoPort = null;
 let serialReady = false;
 let lastArduinoMessage = '';
@@ -366,9 +366,6 @@ function cancelScheduledJob(id) {
     scheduledJobs.delete(Number(id));
   }
 }
-
-initSerial();
-scheduleAllFromDb();
 
 app.get('/api/products', (req, res) => {
   db.all('SELECT id, name, sku, sku AS type, quantity, status, notes, created_at FROM products ORDER BY created_at DESC', [], (err, rows) => {
@@ -634,3 +631,54 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
 });
+
+
+// reward system endpoints
+app.post('/api/reward/status', async (req, res) => {
+  try {
+    const data = await getRewardStatus();
+    res.json(data);
+  } catch (e) {
+    console.error('Error en /api/reward/status:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+async function dispenseReward() {
+  if (!arduinoPort?.isOpen) {
+    throw new Error(
+      'Arduino no conectado'
+    );
+  }
+  const command = {
+    dispense: true
+  };
+  arduinoPort.write(
+    JSON.stringify(command) + '\n'
+  );
+  
+};
+
+app.post('/api/reward/dispense', async (req, res) => {
+
+  try {
+
+    await dispenseReward();
+
+    res.json({
+      success: true
+    });
+  } catch (e) {
+    console.error(
+      'Error en /api/reward/dispense:',
+      e.message
+    );
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
+
+  }
+});
+
+initSerial();
+scheduleAllFromDb();
