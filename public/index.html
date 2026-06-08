@@ -12,6 +12,9 @@
       <div class="header-brand">
         <img src="logo.png.png" alt="Smart Pet Home" class="brand-logo" />
       </div>
+      <div style="text-align:right;margin-top:8px;">
+        <button id="logout-btn" class="secondary" style="font-size:0.8rem;padding:6px 14px;">Cerrar sesión</button>
+      </div>
     </header>
 
     <section class="panel">
@@ -34,6 +37,7 @@
         <tbody></tbody>
       </table>
     </section>
+
 
     <section class="panel hidden" id="form-section">
       <h2>Agregar Producto</h2>
@@ -95,7 +99,17 @@
         <strong>Estado puerta:</strong> <span id="gate-status">Desconocido</span>
       </div>
     </section>
-    
+
+    <section class="panel" id="communication-panel">
+      <h2>Sistema de Comunicación</h2>
+      <div class="row">
+        <p id="communication-description">Sin sistema de comunicación configurado.</p>
+      </div>
+      <div class="row">
+        <button id="communication-speak-button" class="primary" disabled>Hablar</button>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>Sensor de Movimiento (Láser)</h2>
       <div class="connection-status">
@@ -249,63 +263,11 @@
             <h3>Bloques de Horarios</h3>
             <div class="row">
               <label>Hora de Inicio</label>
-              <select id="modal-schedule-start" required>
-                <option value="">Selecciona hora de inicio</option>
-                <option value="00:00">00:00</option>
-                <option value="01:00">01:00</option>
-                <option value="02:00">02:00</option>
-                <option value="03:00">03:00</option>
-                <option value="04:00">04:00</option>
-                <option value="05:00">05:00</option>
-                <option value="06:00">06:00</option>
-                <option value="07:00">07:00</option>
-                <option value="08:00">08:00</option>
-                <option value="09:00">09:00</option>
-                <option value="10:00">10:00</option>
-                <option value="11:00">11:00</option>
-                <option value="12:00">12:00</option>
-                <option value="13:00">13:00</option>
-                <option value="14:00">14:00</option>
-                <option value="15:00">15:00</option>
-                <option value="16:00">16:00</option>
-                <option value="17:00">17:00</option>
-                <option value="18:00">18:00</option>
-                <option value="19:00">19:00</option>
-                <option value="20:00">20:00</option>
-                <option value="21:00">21:00</option>
-                <option value="22:00">22:00</option>
-                <option value="23:00">23:00</option>
-              </select>
+              <input type="time" id="modal-schedule-start" required>
             </div>
             <div class="row">
               <label>Hora de Fin</label>
-              <select id="modal-schedule-end" required>
-                <option value="">Selecciona hora de fin</option>
-                <option value="00:00">00:00</option>
-                <option value="01:00">01:00</option>
-                <option value="02:00">02:00</option>
-                <option value="03:00">03:00</option>
-                <option value="04:00">04:00</option>
-                <option value="05:00">05:00</option>
-                <option value="06:00">06:00</option>
-                <option value="07:00">07:00</option>
-                <option value="08:00">08:00</option>
-                <option value="09:00">09:00</option>
-                <option value="10:00">10:00</option>
-                <option value="11:00">11:00</option>
-                <option value="12:00">12:00</option>
-                <option value="13:00">13:00</option>
-                <option value="14:00">14:00</option>
-                <option value="15:00">15:00</option>
-                <option value="16:00">16:00</option>
-                <option value="17:00">17:00</option>
-                <option value="18:00">18:00</option>
-                <option value="19:00">19:00</option>
-                <option value="20:00">20:00</option>
-                <option value="21:00">21:00</option>
-                <option value="22:00">22:00</option>
-                <option value="23:00">23:00</option>
-              </select>
+              <input type="time" id="modal-schedule-end" required>
             </div>
             <div class="actions">
               <button type="button" id="modal-add-schedule-button" class="secondary">Agregar Bloque de Horario</button>
