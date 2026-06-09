@@ -64,12 +64,15 @@ const arduinoResponseRow = document.getElementById('arduino-response-row');
 const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 
 const communicationPanel = document.getElementById('communication-panel');
+const communicationStatusDot = document.getElementById('communication-dot');
+const communicationStatusText = document.getElementById('communication-status-text');
 const communicationDescription = document.getElementById('communication-description');
 const communicationSpeakButton = document.getElementById('communication-speak-button');
 const communicationMessage = document.getElementById('communication-message');
 
 let arduinoConnected = false;
 let communicationProduct = null;
+let communicationConnected = false;
 let communicationMode = false;
 let communicationMessageTimeout = null;
 
@@ -158,11 +161,24 @@ function updateCommunicationSection() {
   if (!communicationProduct) {
     communicationDescription.textContent = 'Sin sistema de comunicación configurado.';
     communicationSpeakButton.disabled = true;
+    communicationStatusDot.className = 'status-dot disconnected';
+    communicationStatusText.textContent = 'Sistema no configurado';
+    setCommunicationMessage('');
+    return;
+  }
+
+  if (!communicationConnected) {
+    communicationDescription.textContent = communicationProduct.notes || 'Sistema de comunicación desconectado.';
+    communicationStatusDot.className = 'status-dot disconnected';
+    communicationStatusText.textContent = 'Raspberry no conectada';
+    communicationSpeakButton.disabled = true;
     setCommunicationMessage('');
     return;
   }
 
   communicationDescription.textContent = communicationProduct.notes || 'Sistema de comunicación activo.';
+  communicationStatusDot.className = 'status-dot connected';
+  communicationStatusText.textContent = 'Raspberry conectada';
   communicationSpeakButton.disabled = false;
   setCommunicationMessage('');
 }
@@ -179,6 +195,20 @@ async function loadProducts() {
   renderProducts(products);
   updateCommunicationSection();
   setCommunicationMode(false);
+}
+
+async function loadCommunicationStatus() {
+  try {
+    const res = await fetch('/api/communication/connection');
+    if (!res.ok) return;
+    const data = await res.json();
+    communicationConnected = !!data.connected;
+    updateCommunicationSection();
+  } catch (e) {
+    console.error('Error verificando conexión de comunicación', e);
+    communicationConnected = false;
+    updateCommunicationSection();
+  }
 }
 
 async function saveProduct(event) {
@@ -550,6 +580,11 @@ communicationSpeakButton?.addEventListener('click', async () => {
     duration: action === 'start' ? -1 : 0
   };
 
+  if (!communicationConnected) {
+    showAlert('No hay conexión con la Raspberry. Espera a que se reconecte.', 'error');
+    return;
+  }
+
   try {
     const res = await fetch('/api/communication/speak', {
       method: 'POST',
@@ -694,6 +729,7 @@ closeGateButton?.addEventListener('click', closeGate);
 
 async function refreshGate() {
   await loadConnectionStatus();
+  await loadCommunicationStatus();
   loadGateState();
 }
 

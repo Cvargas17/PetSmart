@@ -199,11 +199,70 @@ const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
 // MQTT setup
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
 const MQTT_TOPIC = process.env.MQTT_TOPIC || 'alerta';
+const MQTT_STATUS_TOPIC = process.env.MQTT_STATUS_TOPIC || 'alerta/status';
 let mqttClient = null;
+let raspberryConnected = false;
+let raspberryLastSeen = 0;
+const RASPBERRY_STATUS_TIMEOUT_MS = 15000;
+
+function updateRaspberryStatus(isConnected) {
+  raspberryConnected = !!isConnected;
+  if (raspberryConnected) {
+    raspberryLastSeen = Date.now();
+  }
+}
+
+function handleStatusMessage(payload) {
+  try {
+    let message = payload.toString().trim();
+    if ((message.startsWith('"') && message.endsWith('"')) || (message.startsWith("'") && message.endsWith("'"))) {
+      message = message.slice(1, -1).trim();
+    }
+
+    const normalized = message.toLowerCase();
+    if (normalized === 'online' || normalized === '1' || normalized === 'true') {
+      updateRaspberryStatus(true);
+      return;
+    }
+
+    if (normalized === 'offline' || normalized === '0' || normalized === 'false') {
+      updateRaspberryStatus(false);
+      return;
+    }
+
+    if (message.startsWith('{') || message.startsWith('[')) {
+      const data = JSON.parse(message);
+      if (data.status === 'online' || data.connected === true) {
+        updateRaspberryStatus(true);
+        return;
+      }
+      if (data.status === 'offline' || data.connected === false) {
+        updateRaspberryStatus(false);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('No se pudo parsear estado Raspberry MQTT:', e.message);
+  }
+}
+
 try {
   mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
-  mqttClient.on('connect', () => console.log('Conectado a broker MQTT:', MQTT_BROKER));
+  mqttClient.on('connect', () => {
+    console.log('Conectado a broker MQTT:', MQTT_BROKER);
+    mqttClient.subscribe(MQTT_STATUS_TOPIC, { qos: 1 }, (err) => {
+      if (err) console.error('Error suscribiendo al estado Raspberry:', err.message);
+    });
+  });
   mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
+  mqttClient.on('close', () => {
+    console.warn('MQTT conexión cerrada');
+  });
+  mqttClient.on('message', (topic, payload) => {
+    if (topic === MQTT_STATUS_TOPIC) {
+      handleStatusMessage(payload);
+    }
+  });
 } catch (e) {
   console.error('No se pudo inicializar MQTT:', e.message);
   mqttClient = null;
@@ -584,6 +643,21 @@ app.get('/api/gate/connection', (req, res) => {
   });
 });
 
+app.get('/api/communication/connection', (req, res) => {
+  const now = Date.now();
+  if (raspberryConnected && now - raspberryLastSeen > RASPBERRY_STATUS_TIMEOUT_MS) {
+    raspberryConnected = false;
+  }
+
+  res.json({
+    connected: raspberryConnected,
+    broker: MQTT_BROKER,
+    topic: MQTT_TOPIC,
+    statusTopic: MQTT_STATUS_TOPIC,
+    lastSeen: raspberryLastSeen || null
+  });
+});
+
 app.get('/api/gate/schedules', (req, res) => {
   db.all('SELECT id, time, end_time, enabled, created_at FROM schedules ORDER BY created_at DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -734,21 +808,30 @@ app.post('/api/communication/speak', async (req, res) => {
 
     console.log('📢 POST /api/communication/speak:', { productId, frequency, duration, action, payloadBody });
 
-    if (!mqttClient) {
-      console.warn('❌ MQTT client not initialized');
-    } else if (!mqttClient.connected) {
-      console.warn('⚠️  MQTT no conectado, intentando continuar');
-    } else {
-      const payload = JSON.stringify(payloadBody);
-      console.log(`📤 Publicando en MQTT topic "${MQTT_TOPIC}":`, payload);
-      mqttClient.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) => {
-        if (err) {
-          console.error('❌ Error publicando MQTT:', err.message);
-        } else {
-          console.log('✅ Mensaje publicado en MQTT exitosamente');
-        }
-      });
+    if (!mqttClient || !mqttClient.connected) {
+      console.warn('❌ MQTT no conectado. No se puede enviar la señal de comunicación.');
+      return res.status(503).json({ error: 'Sistema de comunicación no disponible. MQTT no está conectado.' });
     }
+
+    const now = Date.now();
+    if (raspberryConnected && now - raspberryLastSeen > RASPBERRY_STATUS_TIMEOUT_MS) {
+      raspberryConnected = false;
+    }
+
+    if (!raspberryConnected) {
+      console.warn('❌ Raspberry no conectada. No se puede enviar la señal de comunicación.');
+      return res.status(503).json({ error: 'Raspberry no conectada. Espera a que se reconecte.' });
+    }
+
+    const payload = JSON.stringify(payloadBody);
+    console.log(`📤 Publicando en MQTT topic "${MQTT_TOPIC}":`, payload);
+    mqttClient.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) => {
+      if (err) {
+        console.error('❌ Error publicando MQTT:', err.message);
+      } else {
+        console.log('✅ Mensaje publicado en MQTT exitosamente');
+      }
+    });
 
     if (isStart) {
       try {

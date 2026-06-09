@@ -6,7 +6,9 @@ SSID     = "LIB-3309537"
 PASSWORD = "dhJwxskN5pnf"
 BROKER   = "broker.hivemq.com"
 TOPIC    = "alerta"
+STATUS_TOPIC = "alerta/status"
 PWM_PIN  = 0
+HEARTBEAT_INTERVAL = 10
 
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
@@ -41,6 +43,19 @@ client.connect()
 client.subscribe(TOPIC)
 print("Esperando...")
 
+last_heartbeat = time.time()
+client.publish(STATUS_TOPIC, 'online')
+
 while True:
-    client.check_msg()
-    time.sleep_ms(1)
+    try:
+        client.check_msg()
+    except Exception as e:
+        print('Error MQTT receive:', e)
+
+    if time.time() - last_heartbeat >= HEARTBEAT_INTERVAL:
+        try:
+            client.publish(STATUS_TOPIC, 'online')
+            last_heartbeat = time.time()
+        except Exception as e:
+            print('Error MQTT heartbeat:', e)
+    time.sleep_ms(100)
