@@ -66,10 +66,12 @@ const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 const communicationPanel = document.getElementById('communication-panel');
 const communicationDescription = document.getElementById('communication-description');
 const communicationSpeakButton = document.getElementById('communication-speak-button');
+const communicationMessage = document.getElementById('communication-message');
 
 let arduinoConnected = false;
 let communicationProduct = null;
 let communicationMode = false;
+let communicationMessageTimeout = null;
 
 // Telegram elements
 const telegramForm = document.getElementById('telegram-form');
@@ -134,15 +136,35 @@ function renderProducts(products) {
   });
 }
 
+function setCommunicationMessage(message = '', timeoutMs = 4000) {
+  if (communicationMessageTimeout) {
+    clearTimeout(communicationMessageTimeout);
+    communicationMessageTimeout = null;
+  }
+
+  communicationMessage.textContent = message;
+  communicationMessage.classList.toggle('hidden', !message);
+
+  if (message && timeoutMs > 0) {
+    communicationMessageTimeout = setTimeout(() => {
+      communicationMessage.textContent = '';
+      communicationMessage.classList.add('hidden');
+      communicationMessageTimeout = null;
+    }, timeoutMs);
+  }
+}
+
 function updateCommunicationSection() {
   if (!communicationProduct) {
     communicationDescription.textContent = 'Sin sistema de comunicación configurado.';
     communicationSpeakButton.disabled = true;
+    setCommunicationMessage('');
     return;
   }
 
   communicationDescription.textContent = communicationProduct.notes || 'Sistema de comunicación activo.';
   communicationSpeakButton.disabled = false;
+  setCommunicationMessage('');
 }
 
 function setCommunicationMode(active) {
@@ -541,7 +563,7 @@ communicationSpeakButton?.addEventListener('click', async () => {
     }
 
     setCommunicationMode(!communicationMode);
-    showAlert(action === 'start' ? 'Hablando...' : 'Se detuvo la comunicación.');
+    setCommunicationMessage(action === 'start' ? 'Hablando...' : 'Se detuvo la comunicación.');
   } catch (error) {
     showAlert(error.message || 'Error enviando señal de hablar.', 'error');
   }
