@@ -28,7 +28,15 @@ app.use(session({
 function requireAuth(req, res, next) {
   if (req.session?.authenticated) return next();
   if (req.path === '/login.html' || req.path === '/api/login') return next();
-  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'No autenticado' });
+  // Excluir endpoints del sensor de la autenticación
+const publicApiPaths = ['/api/sensor/motion', '/api/sensor/state', '/api/sensor/history', '/api/sensor/notify-setting'];
+// Verificar si la ruta es de la API y si NO está en las públicas
+if (req.path.startsWith('/api/')) {
+    if (!publicApiPaths.includes(req.path)) {
+        return res.status(401).json({ error: 'No autenticado' });
+    }
+    // Si está en públicas, no hacer nada y continuar
+}
   if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
   next();
 }
@@ -643,6 +651,76 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
     cancelScheduledJob(id);
     res.json({ changes: this.changes });
   });
+});
+
+// ===== SENSOR DE MOVIMIENTO ENDPOINTS =====
+
+app.get('/api/sensor/state', (req, res) => {
+  db.get(
+    `SELECT estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT 1`,
+    [],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || { estado: 'sin_datos', valor: 0, alerta: 0 });
+    }
+  );
+});
+
+app.get('/api/sensor/history', (req, res) => {
+  const limit = req.query.limit || 20;
+  db.all(
+    `SELECT id, estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+app.get('/api/sensor/notify-setting', (req, res) => {
+  db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ enabled: row ? row.notify_enabled === 1 : true });
+  });
+});
+
+app.post('/api/sensor/notify-setting', (req, res) => {
+  const { enabled } = req.body;
+  db.run(
+    `UPDATE sensor_settings SET notify_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+    [enabled ? 1 : 0],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/sensor/motion', (req, res) => {
+  const { estado, valor, alerta } = req.body;
+  if (!estado) {
+    return res.status(400).json({ error: 'estado es obligatorio' });
+  }
+  
+  db.run(
+    `INSERT INTO motion_events (estado, valor, alerta) VALUES (?, ?, ?)`,
+    [estado, valor || 0, alerta ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      
+      if (alerta) {
+        db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
+          if (!err && row && row.notify_enabled === 1) {
+            sendTelegramMessage(`🚨 ALERTA DE MOVIMIENTO\nEstado: ${estado}\nValor: ${valor}\nHora: ${new Date().toLocaleString()}`)
+              .catch(e => console.error('Error enviando Telegram:', e.message));
+          }
+        });
+      }
+      
+      res.json({ id: this.lastID });
+    }
+  );
 });
 
 app.post('/api/communication/speak', async (req, res) => {
