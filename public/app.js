@@ -63,6 +63,94 @@ const gateNoConnectionEl = document.getElementById('gate-no-connection');
 const arduinoResponseRow = document.getElementById('arduino-response-row');
 const arduinoLastMsgEl = document.getElementById('arduino-last-msg');
 
+// Reward device elements
+
+const rewardStock =
+  document.getElementById('reward-stock');
+
+const rewardGuesses =
+  document.getElementById('reward-guesses');
+
+const rewardLimit =
+  document.getElementById('reward-limit');
+
+const rewardRefreshButton =
+  document.getElementById('reward-refresh-button');
+
+const rewardDispenseButton =
+  document.getElementById('reward-dispense-button');
+
+const rewardSaveConfigButton =
+  document.getElementById('reward-save-button');
+
+rewardRefreshButton.addEventListener(
+  'click',
+  loadRewardStatus
+);
+
+async function requestRewardDispense() {
+  try {
+    const res =
+      await fetch('/api/reward/dispense', {
+        method: 'POST'
+      });
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo dispensar el premio.'
+      );
+    }
+
+    showAlert(
+      'Dispensando premio...'
+    );
+
+    setTimeout(
+      loadRewardStatus,
+      3500
+    );
+
+  } catch (e) {
+    console.error(
+      'Error dispensando premio:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+rewardDispenseButton.addEventListener(
+  'click',requestRewardDispense
+);
+
+rewardSaveConfigButton.addEventListener(
+  'click', saveRewardConfig
+);
+
+console.log({
+  rewardStock,
+  rewardGuesses,
+  rewardLimit,
+  rewardRefreshButton,
+  rewardDispenseButton
+});
+const rewardStart =
+  document.getElementById(
+    'reward-start'
+  );
+
+const rewardEnd =
+  document.getElementById(
+    'reward-end'
+  );
 const communicationPanel = document.getElementById('communication-panel');
 const communicationDescription = document.getElementById('communication-description');
 const communicationSpeakButton = document.getElementById('communication-speak-button');
@@ -813,4 +901,101 @@ setTimeout(() => {
 // Actualizar cada 5 segundos
 setInterval(() => {
   loadSensorState();
+  //loadRewardStatus();
 }, 5000);
+
+
+//Reward device system functions
+async function loadRewardStatus() {
+ try {
+    const res =
+      await fetch('/api/reward/status');
+
+    if (!res.ok) {
+      throw new Error(
+        'No se pudo cargar el estado'
+      );
+    }
+
+    const data =
+      await res.json();
+
+    rewardStock.value =
+      data.stock;
+
+    rewardGuesses.value =
+      data.correctGuesses;
+
+    rewardLimit.value =
+      data.dailyLimit;
+
+  } catch (e) {
+    console.error(
+      'Error cargando recompensa:',
+      e
+    );
+  }
+}
+
+async function saveRewardConfig() {
+  try {
+    const payload = {
+      stock:
+        Number(
+          rewardStock.value
+        ),
+
+      dailyLimit:
+        Number(
+          rewardLimit.value
+        ),
+
+      startHour:
+        rewardStart.value,
+
+      endHour:
+        rewardEnd.value
+    };
+
+    const res =
+      await fetch(
+        '/api/reward/config',
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type':
+              'application/json'
+          },
+          body:
+            JSON.stringify(
+              payload
+            )
+        }
+      );
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo guardar la configuración.'
+      );
+    }
+
+    showAlert(
+      'Configuración de recompensas guardada.'
+    );
+
+  } catch (e) {
+    console.error(
+      'Error guardando recompensas:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
