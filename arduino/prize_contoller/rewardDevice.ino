@@ -18,12 +18,21 @@ bool dispense = false;
 
 void dispenseTreat(bool command){
   digitalWrite(5, HIGH);
+<<<<<<< Updated upstream:arduino/prize_contoller/rewardDevice.ino
   myServo.write(180);
   delay(3000);
   digitalWrite(5,LOW);
   myServo.write(0);
   correct = int(random(200,449))/100;
   if(command){
+=======
+  myServo.write(90);
+  delay(3000);
+  digitalWrite(5,LOW);
+  myServo.write(0);
+  correct = random(2,5);
+  if(command)
+>>>>>>> Stashed changes:arduino/rewardDevice/rewardDevice.ino
     correctGuesses++;
   }
   if(dispense){
