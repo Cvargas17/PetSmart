@@ -203,7 +203,7 @@ const MQTT_STATUS_TOPIC = process.env.MQTT_STATUS_TOPIC || 'alerta/status';
 let mqttClient = null;
 let raspberryConnected = false;
 let raspberryLastSeen = 0;
-const RASPBERRY_STATUS_TIMEOUT_MS = 15000;
+const RASPBERRY_STATUS_TIMEOUT_MS = 1000;
 
 function updateRaspberryStatus(isConnected) {
   raspberryConnected = !!isConnected;

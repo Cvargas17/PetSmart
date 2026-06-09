@@ -734,7 +734,7 @@ async function refreshGate() {
 }
 
 refreshGate();
-setInterval(refreshGate, 5000);
+setInterval(refreshGate, 1000);
 
 // ===== SENSOR DE MOVIMIENTO =====
 
