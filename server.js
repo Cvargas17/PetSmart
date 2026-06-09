@@ -6,6 +6,7 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
 const schedule = require('node-schedule');
 const mqtt = require('mqtt');
 
@@ -44,6 +45,15 @@ if (req.path.startsWith('/api/')) {
 app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
 
+let rewardStatus = {
+  stock: 0,
+  correctGuesses: 0
+};
+let rewardConfig = {
+  dailyLimit: 0,
+  startHour: '00:00',
+  endHour: '00:00'
+};
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
   if (
@@ -189,7 +199,7 @@ db.run(`
 });
 
 // Serial port setup
-const ARDUINO_PORT = process.env.ARDUINO_PORT || '';
+const ARDUINO_PORT = process.env.ARDUINO_PORT || 'DEMO';
 let arduinoPort = null;
 let serialReady = false;
 let lastArduinoMessage = '';
@@ -324,6 +334,38 @@ function notifyGateState(state, lastControl) {
   sendTelegramMessage(`Puerta ${action}\nControl: ${control}\nHora: ${new Date().toLocaleString()}`)
     .catch((err) => console.error('Error enviando notificacion Telegram:', err.message));
 }
+function handleRewardSerialMessage(line){
+  const msg = line.toString().trim();
+
+  if (!msg) return;
+
+  console.log('Arduino recompensa:', msg);
+
+  try {
+    const data = JSON.parse(msg);
+
+    if (data.stock !== undefined) {
+      rewardStatus.stock =
+        Number(data.stock);
+    }
+
+    if (data.correctGuesses !== undefined) {
+      rewardStatus.correctGuesses =
+        Number(data.correctGuesses);
+    }
+
+    console.log(
+      'Reward status actualizado:',
+      rewardStatus
+    );
+
+  } catch (e) {
+    console.log(
+      'Mensaje ignorado:',
+      msg
+    );
+  }
+}
 
 function initSerial() {
   if (!ARDUINO_PORT || ARDUINO_PORT === 'DEMO') {
@@ -336,7 +378,8 @@ function initSerial() {
   }
 
   try {
-    arduinoPort = new SerialPort({ path: ARDUINO_PORT, baudRate: 9600 });
+    arduinoPort = new SerialPort({ path: ARDUINO_PORT, baudRate: 9600 }); 
+    const parser = arduinoPort.pipe( new ReadlineParser({ delimiter: '\n' }) );
     arduinoPort.on('open', () => {
       serialReady = true;
     });
@@ -351,6 +394,9 @@ function initSerial() {
       const msg = data.toString().trim();
       if (msg) lastArduinoMessage = msg;
       console.log('Arduino:', msg);
+    });
+    parser.on('data', (line) => {
+      handleRewardSerialMessage(line);
     });
     arduinoPort.on('error', (err) => console.error('Error puerto serie:', err.message));
   } catch (e) {
@@ -483,9 +529,6 @@ function cancelScheduledJob(id) {
     scheduledJobs.delete(Number(id));
   }
 }
-
-initSerial();
-scheduleAllFromDb();
 
 app.get('/api/products', (req, res) => {
   db.all('SELECT id, name, sku, sku AS type, quantity, status, notes, created_at FROM products ORDER BY created_at DESC', [], (err, rows) => {
@@ -848,6 +891,224 @@ app.post('/api/communication/speak', async (req, res) => {
   }
 });
 
+// reward system 
+function calculateRewardInHours() {
+  const now =
+    new Date();
+
+  const currentMinutes =
+    now.getHours() * 60 +
+    now.getMinutes();
+
+  const [
+    startHour,
+    startMinute
+  ] =
+    rewardConfig.startHour
+      .split(':')
+      .map(Number);
+
+  const [
+    endHour,
+    endMinute
+  ] =
+    rewardConfig.endHour
+      .split(':')
+      .map(Number);
+
+  const startMinutes =
+    startHour * 60 +
+    startMinute;
+
+  const endMinutes =
+    endHour * 60 +
+    endMinute;
+
+  return (
+    currentMinutes >=
+      startMinutes &&
+    currentMinutes <
+      endMinutes
+  );
+}
+function sendArduinoJson(data) {
+  return new Promise(
+    (resolve, reject) => {
+      if (
+        !arduinoPort ||
+        !arduinoPort.isOpen ||
+        !arduinoPort.writable
+      ) {
+        return reject(
+          new Error(
+            'Arduino no conectado'
+          )
+        );
+      }
+
+      arduinoPort.write(
+        JSON.stringify(data) + '\n',
+        (err) => {
+          if (err) {
+            return reject(err);
+          }
+
+          resolve();
+        }
+      );
+    }
+  );
+}
+
+async function getRewardStatus() {
+    if (!arduinoPort?.isOpen) {
+    throw new Error(
+      'Arduino no conectado'
+    );
+  }
+  return {
+    ...rewardStatus,
+    ...rewardConfig
+  };
+}
+app.put(
+  '/api/reward/config',
+  async (req, res) => {
+    try {
+      const dailyLimit =
+        Number(req.body.dailyLimit);
+
+      const stock =
+        Number(req.body.stock);
+
+      const startHour =
+        req.body.startHour;
+
+      const endHour =
+        req.body.endHour;
+
+      if (
+        !Number.isInteger(dailyLimit) ||
+        dailyLimit < 0
+      ) {
+        return res.status(400).json({
+          error:
+            'El límite debe ser un entero mayor o igual a 0.'
+        });
+      }
+
+      if (
+        !Number.isInteger(stock) ||
+        stock < 0
+      ) {
+        return res.status(400).json({
+          error:
+            'El stock debe ser un entero mayor o igual a 0.'
+        });
+      }
+
+      if (
+        !/^\d{2}:\d{2}$/.test(startHour) ||
+        !/^\d{2}:\d{2}$/.test(endHour)
+      ) {
+        return res.status(400).json({
+          error:
+            'Las horas deben usar el formato HH:MM.'
+        });
+      }
+
+      rewardConfig.dailyLimit =
+        dailyLimit;
+
+      rewardConfig.startHour =
+        startHour;
+
+      rewardConfig.endHour =
+        endHour;
+
+      rewardStatus.stock =
+        stock;
+
+      await sendRewardConfig();
+
+      res.json({
+        success: true,
+        config: {
+          ...rewardConfig,
+          stock:
+            rewardStatus.stock,
+          inHours:
+            calculateRewardInHours()
+        }
+      });
+
+    } catch (e) {
+      console.error(
+        'Error en /api/reward/config:',
+        e.message
+      );
+
+      res.status(500).json({
+        error: e.message
+      });
+    }
+  }
+);
+app.get('/api/reward/status', async (req, res) => {
+  try {
+    const data = await getRewardStatus();
+    res.json(data);
+  } catch (e) {
+    console.error(
+      'Error en /api/reward/status:',
+      e.message
+    );
+
+    res.status(500).json({
+      error: e.message
+    });
+  }
+});
+async function dispenseReward() {
+  await sendArduinoJson({
+    dispense: true
+  });
+};
+
+async function sendRewardConfig() {
+  await sendArduinoJson({
+    limit:
+      rewardConfig.dailyLimit,
+
+    stock:
+      rewardStatus.stock,
+
+    inHours:
+      calculateRewardInHours()
+  });
+}
+
+app.post('/api/reward/dispense', async (req, res) => {
+
+  try {
+
+    await dispenseReward();
+    res.json({
+      success: true
+    });
+  } catch (e) {
+    console.error(
+      'Error en /api/reward/dispense:',
+      e.message
+    );
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
+
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -856,6 +1117,10 @@ const server = app.listen(PORT, () => {
   console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
 });
 
+
+
+initSerial();
+scheduleAllFromDb();
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Error: el puerto ${PORT} ya está en uso. Detén el proceso que lo usa o configura otra variable PORT.`);

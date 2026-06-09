@@ -53,6 +53,7 @@
             <option value="">Selecciona un tipo</option>
             <option value="puerta">Puerta</option>
             <option value="sensor">Sensor de Movimiento</option>
+            <option value="recompensa">Sistema de recompensa</option>
             <option value="otro">Otro</option>
           </select>
         </div>
@@ -141,7 +142,6 @@
     <button id="refresh-sensor-btn" class="secondary">Refrescar</button>
   </div>
 </section>
-
 <section class="panel">
   <h3>Historial de Eventos - Sensor de Movimiento</h3>
   <table id="sensor-history-table">
@@ -153,7 +153,47 @@
     </tbody>
   </table>
 </section>
+<section class="panel">
+  <h2>Sistema de Recompensas</h2>
 
+  <div class="row">
+    <label>Stock</label>
+    <input id="reward-stock" type="number">
+  </div>
+
+  <div class="row">
+    <label>Límite Diario</label>
+    <input id="reward-limit" type="number">
+  </div>
+
+  <div class="row">
+    <label>Aciertos</label>
+    <input id="reward-guesses" readonly>
+  </div>
+
+  <div class="row">
+    <label>Horario Inicio</label>
+    <input id="reward-start" type="time">
+  </div>
+
+  <div class="row">
+    <label>Horario Fin</label>
+    <input id="reward-end" type="time">
+  </div>
+
+  <div class="actions">
+    <button id="reward-refresh-button" type="button">
+      Actualizar Estado
+    </button>
+    <button id="reward-save-button" type="button">
+      Guardar Configuración
+    </button>
+
+    <button id="reward-dispense-button" type="button">
+      Dispensar Premio
+    </button>
+  </div>
+</section>
     <section class="panel">
       <h2>Telegram</h2>
       <form id="telegram-form">
@@ -201,6 +241,7 @@
               <option value="">Selecciona un tipo</option>
               <option value="puerta">Puerta</option>
               <option value="sensor">Sensor de Movimiento</option>
+              <option value="recompensa">Sistema de recompensa</option>
               <option value="otro">Otro</option>
             </select>
             </div>
