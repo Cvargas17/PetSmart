@@ -102,11 +102,18 @@
 
     <section class="panel" id="communication-panel">
       <h2>Sistema de Comunicación</h2>
+      <div class="connection-status">
+        <span id="communication-dot" class="status-dot"></span>
+        <span id="communication-status-text">Verificando conexión...</span>
+      </div>
       <div class="row">
         <p id="communication-description">Sin sistema de comunicación configurado.</p>
       </div>
       <div class="row">
         <button id="communication-speak-button" class="primary" disabled>Hablar</button>
+      </div>
+      <div class="row">
+        <span id="communication-message" class="hint"></span>
       </div>
     </section>
 
