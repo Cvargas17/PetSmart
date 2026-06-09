@@ -751,10 +751,8 @@ app.post('/api/communication/speak', async (req, res) => {
     }
 
     if (isStart) {
-      const prodRow = await getDb('SELECT name FROM products WHERE id = ?', [productId || 1]);
-      const pname = prodRow?.name || 'sistema de comunicación';
       try {
-        await sendTelegramMessage(`Se está hablando en ${pname}`, { force: true });
+        await sendTelegramMessage('Se utilizó el sistema de comunicación', { force: true });
       } catch (tgErr) {
         console.error('Error enviando Telegram:', tgErr.message);
       }
@@ -771,6 +769,14 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Error: el puerto ${PORT} ya está en uso. Detén el proceso que lo usa o configura otra variable PORT.`);
+    process.exit(1);
+  }
+  throw err;
 });
