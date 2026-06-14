@@ -995,6 +995,126 @@ async function loadRewardStatus() {
   }
 }
 
+// ===== SENSOR DE TEMPERATURA / VENTILADOR =====
+
+async function loadTempState() {
+  try {
+    const res = await fetch('/api/temp/state');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const dot      = document.getElementById('temp-status-dot');
+    const statusTx = document.getElementById('temp-status-text');
+    const valEl    = document.getElementById('temp-value');
+    const fanIcon  = document.getElementById('fan-icon');
+    const fanLabel = document.getElementById('fan-label');
+    const thInput  = document.getElementById('temp-threshold-input');
+
+    if (!dot) return;
+
+    if (data.connected) {
+      dot.className = 'status-dot connected';
+      statusTx.textContent = 'Arduino conectado';
+    } else {
+      dot.className = 'status-dot disconnected';
+      statusTx.textContent = TEMP_PORT_HINT
+        ? 'Arduino desconectado — revisa TEMP_PORT en .env'
+        : 'TEMP_PORT no configurado en .env';
+    }
+
+    if (data.temp !== null && data.temp !== undefined) {
+      valEl.textContent = parseFloat(data.temp).toFixed(1);
+    } else {
+      valEl.textContent = '--';
+    }
+
+    if (data.fan) {
+      fanIcon.className = 'fan-icon on';
+      fanLabel.textContent = 'Ventilador: ENCENDIDO';
+      fanLabel.style.color = 'var(--primary)';
+    } else {
+      fanIcon.className = 'fan-icon off';
+      fanLabel.textContent = 'Ventilador: APAGADO';
+      fanLabel.style.color = 'var(--muted)';
+    }
+
+    if (thInput && data.threshold !== undefined) {
+      thInput.value = data.threshold;
+    }
+  } catch (e) {
+    console.error('Error cargando temperatura:', e);
+  }
+}
+
+const TEMP_PORT_HINT = true;
+
+async function loadTempHistory() {
+  try {
+    const res = await fetch('/api/temp/history?limit=20');
+    if (!res.ok) return;
+    const rows = await res.json();
+    const tbody = document.querySelector('#temp-history-table tbody');
+    if (!tbody) return;
+
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">Sin lecturas registradas</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${new Date(r.created_at).toLocaleString()}</td>
+        <td>${parseFloat(r.temp).toFixed(1)} °C</td>
+        <td>${r.fan ? '&#128168; ON' : 'OFF'}</td>
+        <td>${parseFloat(r.threshold).toFixed(1)} °C</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error('Error cargando historial de temperatura:', e);
+  }
+}
+
+async function saveTempThreshold() {
+  const input = document.getElementById('temp-threshold-input');
+  if (!input) return;
+  const val = parseFloat(input.value);
+  if (isNaN(val) || val < 0 || val > 99) {
+    showAlert('El umbral debe estar entre 0 y 99 °C.', 'error');
+    return;
+  }
+  try {
+    const res = await fetch('/api/temp/threshold', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold: val })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error guardando umbral.');
+    showAlert(`Umbral actualizado a ${val} °C.`);
+  } catch (e) {
+    showAlert(e.message, 'error');
+  }
+}
+
+document.getElementById('temp-threshold-save')?.addEventListener('click', saveTempThreshold);
+document.getElementById('temp-refresh-btn')?.addEventListener('click', () => {
+  loadTempState();
+  loadTempHistory();
+});
+
+// Inicializar y refrescar temperatura cada 5 segundos
+setTimeout(() => {
+  loadTempState();
+  loadTempHistory();
+}, 600);
+
+setInterval(() => {
+  loadTempState();
+}, 5000);
+
 async function saveRewardConfig() {
   try {
     const payload = {

@@ -194,6 +194,52 @@
     </button>
   </div>
 </section>
+    <!-- Panel: Sensor de Temperatura / Ventilador -->
+    <section class="panel" id="temp-panel">
+      <h2>Sensor de Temperatura y Ventilador</h2>
+      <div class="connection-status">
+        <span id="temp-status-dot" class="status-dot"></span>
+        <span id="temp-status-text">Verificando conexión...</span>
+      </div>
+
+      <div class="temp-display">
+        <div class="temp-value-box">
+          <span id="temp-value">--</span>
+          <span class="temp-unit">°C</span>
+        </div>
+        <div class="fan-status-box">
+          <span id="fan-icon" class="fan-icon">&#128168;</span>
+          <span id="fan-label">Ventilador: --</span>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:14px;">
+        <label>Temperatura umbral (°C)</label>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input id="temp-threshold-input" type="number" min="0" max="99" step="0.5" value="30"
+                 style="width:120px;" />
+          <button id="temp-threshold-save" type="button">Guardar umbral</button>
+        </div>
+      </div>
+      <p class="hint">El ventilador se enciende automáticamente al superar este umbral.</p>
+
+      <div class="actions">
+        <button id="temp-refresh-btn" class="secondary" type="button">Refrescar</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Historial de Temperatura</h3>
+      <table id="temp-history-table">
+        <thead>
+          <tr><th>Fecha/Hora</th><th>Temperatura</th><th>Ventilador</th><th>Umbral</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4" class="empty">Cargando historial...</td></tr>
+        </tbody>
+      </table>
+    </section>
+
     <section class="panel">
       <h2>Telegram</h2>
       <form id="telegram-form">

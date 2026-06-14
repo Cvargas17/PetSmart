@@ -198,6 +198,49 @@ db.run(`
   }
 });
 
+// ===== TEMPERATURA =====
+const TEMP_PORT = process.env.TEMP_PORT || null;
+let tempPort = null;
+let tempSerialReady = false;
+
+let tempState = {
+  temp: null,
+  fan: false,
+  threshold: 30.0,
+  updatedAt: null
+};
+
+// Tabla configuración temperatura
+db.run(`
+  CREATE TABLE IF NOT EXISTS temp_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    threshold REAL DEFAULT 30.0,
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla temp_settings:', err.message);
+  else {
+    db.run(`INSERT OR IGNORE INTO temp_settings (id, threshold, updated_at) VALUES (1, 30.0, CURRENT_TIMESTAMP)`);
+    // Cargar umbral persistido
+    db.get('SELECT threshold FROM temp_settings WHERE id = 1', [], (e, row) => {
+      if (!e && row) tempState.threshold = row.threshold;
+    });
+  }
+});
+
+// Tabla historial de lecturas de temperatura
+db.run(`
+  CREATE TABLE IF NOT EXISTS temp_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    temp REAL NOT NULL,
+    fan INTEGER DEFAULT 0,
+    threshold REAL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla temp_readings:', err.message);
+});
+
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || 'DEMO';
 let arduinoPort = null;
@@ -1109,6 +1152,104 @@ app.post('/api/reward/dispense', async (req, res) => {
   }
 });
 
+// ===== SENSOR DE TEMPERATURA / VENTILADOR =====
+
+function handleTempSerialMessage(line) {
+  const msg = line.toString().trim();
+  if (!msg) return;
+
+  try {
+    const data = JSON.parse(msg);
+    if (data.temp === undefined) return;
+
+    const prevFan = tempState.fan;
+    tempState.temp = parseFloat(data.temp);
+    tempState.fan = !!data.fan;
+    tempState.updatedAt = new Date().toISOString();
+
+    db.run(
+      `INSERT INTO temp_readings (temp, fan, threshold) VALUES (?, ?, ?)`,
+      [tempState.temp, tempState.fan ? 1 : 0, tempState.threshold],
+      (err) => { if (err) console.error('Error guardando lectura de temperatura:', err.message); }
+    );
+
+    if (tempState.fan !== prevFan) {
+      const estado = tempState.fan ? 'encendido' : 'apagado';
+      sendTelegramMessage(
+        `Ventilador ${estado}\nTemperatura actual: ${tempState.temp}°C\nUmbral: ${tempState.threshold}°C`
+      ).catch(e => console.error('Error enviando Telegram temp:', e.message));
+    }
+  } catch (e) {
+    // línea no JSON — ignorar
+  }
+}
+
+function initTempSerial() {
+  if (!TEMP_PORT) return;
+
+  try {
+    tempPort = new SerialPort({ path: TEMP_PORT, baudRate: 9600 });
+    const parser = tempPort.pipe(new ReadlineParser({ delimiter: '\n' }));
+    tempPort.on('open', () => {
+      tempSerialReady = true;
+      console.log('Sensor de temperatura conectado en', TEMP_PORT);
+      // Enviar umbral persistido al Arduino al conectar
+      tempPort.write(`THRESHOLD:${tempState.threshold}\n`);
+    });
+    tempPort.on('close', () => { tempSerialReady = false; });
+    tempPort.on('error', (err) => {
+      tempSerialReady = false;
+      console.error('Error puerto temperatura:', err.message);
+    });
+    parser.on('data', handleTempSerialMessage);
+  } catch (e) {
+    console.error('No se pudo inicializar el puerto de temperatura:', e.message);
+    tempPort = null;
+  }
+}
+
+app.get('/api/temp/state', (req, res) => {
+  res.json({
+    temp: tempState.temp,
+    fan: tempState.fan,
+    threshold: tempState.threshold,
+    connected: tempSerialReady,
+    updatedAt: tempState.updatedAt
+  });
+});
+
+app.put('/api/temp/threshold', async (req, res) => {
+  const val = parseFloat(req.body.threshold);
+  if (isNaN(val) || val < 0 || val > 99) {
+    return res.status(400).json({ error: 'El umbral debe ser un número entre 0 y 99.' });
+  }
+  tempState.threshold = val;
+  try {
+    await runDb(
+      `INSERT OR REPLACE INTO temp_settings (id, threshold, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)`,
+      [val]
+    );
+  } catch (e) {
+    console.error('Error guardando umbral:', e.message);
+  }
+  if (tempSerialReady && tempPort?.isOpen) {
+    tempPort.write(`THRESHOLD:${val}\n`);
+  }
+  res.json({ success: true, threshold: val });
+});
+
+app.get('/api/temp/history', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  db.all(
+    `SELECT id, temp, fan, threshold, created_at FROM temp_readings ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -1120,6 +1261,7 @@ const server = app.listen(PORT, () => {
 
 
 initSerial();
+initTempSerial();
 scheduleAllFromDb();
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

@@ -398,6 +398,61 @@ button:disabled {
   background: #f5f5f5;
 }
 
+/* ── Panel de temperatura ────────────────────────────── */
+.temp-display {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  margin: 8px 0 4px;
+  flex-wrap: wrap;
+}
+
+.temp-value-box {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  background: var(--bg);
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  padding: 14px 28px;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.temp-value-box span#temp-value {
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--primary-strong);
+  line-height: 1;
+}
+
+.temp-unit {
+  font-size: 1.5rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fan-status-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.fan-icon {
+  font-size: 2rem;
+  transition: color 0.3s;
+}
+
+.fan-icon.on  { color: var(--primary); animation: spin 1s linear infinite; }
+.fan-icon.off { color: var(--border); animation: none; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ── Toggle form button ──────────────────────────────── */
 #toggle-form-button {
   margin-bottom: 16px;
