@@ -199,10 +199,6 @@ db.run(`
 });
 
 // ===== TEMPERATURA =====
-const TEMP_PORT = process.env.TEMP_PORT || null;
-let tempPort = null;
-let tempSerialReady = false;
-
 let tempState = {
   temp: null,
   fan: false,
@@ -379,34 +375,46 @@ function notifyGateState(state, lastControl) {
 }
 function handleRewardSerialMessage(line){
   const msg = line.toString().trim();
-
   if (!msg) return;
 
-  console.log('Arduino recompensa:', msg);
+  console.log('Arduino:', msg);
 
   try {
     const data = JSON.parse(msg);
 
+    // Mensaje de temperatura
+    if (data.temp !== undefined) {
+      const prevFan = tempState.fan;
+      tempState.temp = parseFloat(data.temp);
+      tempState.fan = !!data.fan;
+      tempState.updatedAt = new Date().toISOString();
+
+      db.run(
+        `INSERT INTO temp_readings (temp, fan, threshold) VALUES (?, ?, ?)`,
+        [tempState.temp, tempState.fan ? 1 : 0, tempState.threshold],
+        (err) => { if (err) console.error('Error guardando lectura de temperatura:', err.message); }
+      );
+
+      if (tempState.fan !== prevFan) {
+        const estado = tempState.fan ? 'encendido' : 'apagado';
+        sendTelegramMessage(
+          `Ventilador ${estado}\nTemperatura actual: ${tempState.temp}°C\nUmbral: ${tempState.threshold}°C`
+        ).catch(e => console.error('Error enviando Telegram temp:', e.message));
+      }
+      return;
+    }
+
+    // Mensaje de recompensa
     if (data.stock !== undefined) {
-      rewardStatus.stock =
-        Number(data.stock);
+      rewardStatus.stock = Number(data.stock);
     }
-
     if (data.correctGuesses !== undefined) {
-      rewardStatus.correctGuesses =
-        Number(data.correctGuesses);
+      rewardStatus.correctGuesses = Number(data.correctGuesses);
     }
-
-    console.log(
-      'Reward status actualizado:',
-      rewardStatus
-    );
+    console.log('Reward status actualizado:', rewardStatus);
 
   } catch (e) {
-    console.log(
-      'Mensaje ignorado:',
-      msg
-    );
+    // Mensaje de texto (OPENING, OPEN, CLOSED, etc.) — ignorar silenciosamente
   }
 }
 
@@ -425,6 +433,12 @@ function initSerial() {
     const parser = arduinoPort.pipe( new ReadlineParser({ delimiter: '\n' }) );
     arduinoPort.on('open', () => {
       serialReady = true;
+      // Enviar umbral de temperatura persistido al Arduino
+      setTimeout(() => {
+        if (arduinoPort?.isOpen) {
+          arduinoPort.write(`THRESHOLD:${tempState.threshold}\n`);
+        }
+      }, 1500);
     });
     arduinoPort.on('error', () => {
       serialReady = false;
@@ -1154,66 +1168,12 @@ app.post('/api/reward/dispense', async (req, res) => {
 
 // ===== SENSOR DE TEMPERATURA / VENTILADOR =====
 
-function handleTempSerialMessage(line) {
-  const msg = line.toString().trim();
-  if (!msg) return;
-
-  try {
-    const data = JSON.parse(msg);
-    if (data.temp === undefined) return;
-
-    const prevFan = tempState.fan;
-    tempState.temp = parseFloat(data.temp);
-    tempState.fan = !!data.fan;
-    tempState.updatedAt = new Date().toISOString();
-
-    db.run(
-      `INSERT INTO temp_readings (temp, fan, threshold) VALUES (?, ?, ?)`,
-      [tempState.temp, tempState.fan ? 1 : 0, tempState.threshold],
-      (err) => { if (err) console.error('Error guardando lectura de temperatura:', err.message); }
-    );
-
-    if (tempState.fan !== prevFan) {
-      const estado = tempState.fan ? 'encendido' : 'apagado';
-      sendTelegramMessage(
-        `Ventilador ${estado}\nTemperatura actual: ${tempState.temp}°C\nUmbral: ${tempState.threshold}°C`
-      ).catch(e => console.error('Error enviando Telegram temp:', e.message));
-    }
-  } catch (e) {
-    // línea no JSON — ignorar
-  }
-}
-
-function initTempSerial() {
-  if (!TEMP_PORT) return;
-
-  try {
-    tempPort = new SerialPort({ path: TEMP_PORT, baudRate: 9600 });
-    const parser = tempPort.pipe(new ReadlineParser({ delimiter: '\n' }));
-    tempPort.on('open', () => {
-      tempSerialReady = true;
-      console.log('Sensor de temperatura conectado en', TEMP_PORT);
-      // Enviar umbral persistido al Arduino al conectar
-      tempPort.write(`THRESHOLD:${tempState.threshold}\n`);
-    });
-    tempPort.on('close', () => { tempSerialReady = false; });
-    tempPort.on('error', (err) => {
-      tempSerialReady = false;
-      console.error('Error puerto temperatura:', err.message);
-    });
-    parser.on('data', handleTempSerialMessage);
-  } catch (e) {
-    console.error('No se pudo inicializar el puerto de temperatura:', e.message);
-    tempPort = null;
-  }
-}
-
 app.get('/api/temp/state', (req, res) => {
   res.json({
     temp: tempState.temp,
     fan: tempState.fan,
     threshold: tempState.threshold,
-    connected: tempSerialReady,
+    connected: serialReady,
     updatedAt: tempState.updatedAt
   });
 });
@@ -1232,8 +1192,8 @@ app.put('/api/temp/threshold', async (req, res) => {
   } catch (e) {
     console.error('Error guardando umbral:', e.message);
   }
-  if (tempSerialReady && tempPort?.isOpen) {
-    tempPort.write(`THRESHOLD:${val}\n`);
+  if (serialReady && arduinoPort?.isOpen) {
+    arduinoPort.write(`THRESHOLD:${val}\n`);
   }
   res.json({ success: true, threshold: val });
 });
@@ -1261,7 +1221,6 @@ const server = app.listen(PORT, () => {
 
 
 initSerial();
-initTempSerial();
 scheduleAllFromDb();
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

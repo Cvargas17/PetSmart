@@ -1,3 +1,6 @@
+#include <DHT.h>
+#include <DHT_U.h>
+
 /*
   tempFan.ino — Sensor de temperatura DHT11 con control de ventilador
 
@@ -9,7 +12,6 @@
     Envía cada 2s:  {"temp":28.5,"fan":false,"threshold":30.0}
     Recibe:         THRESHOLD:30.0
 */
-
 #include <DHT.h>
 
 #define DHT_PIN      7
