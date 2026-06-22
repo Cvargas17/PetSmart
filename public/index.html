@@ -239,7 +239,82 @@
         </tbody>
       </table>
     </section>
+    <section class="panel launcher-panel">
+      <h2>Lanzador de Pelotas</h2>
 
+      <p class="muted">
+        Controla la dirección del lanzador, dispara manualmente o programa el inicio del entrenamiento.
+      </p>
+
+      <div class="launcher-layout">
+
+        <div class="launcher-controls">
+          <h3>Dirección</h3>
+
+          <div class="direction-pad">
+            <button id="launcher-up" type="button" class="direction-btn up">
+              ▲
+            </button>
+
+            <button id="launcher-left" type="button" class="direction-btn left">
+              ◀
+            </button>
+
+            <div class="direction-center">
+              <span id="launcher-sector-label">Centro</span>
+            </div>
+
+            <button id="launcher-right" type="button" class="direction-btn right">
+              ▶
+            </button>
+
+            <button id="launcher-down" type="button" class="direction-btn down">
+              ▼
+            </button>
+          </div>
+        </div>
+
+        <div class="launcher-actions">
+          <h3>Acciones</h3>
+
+          <div class="row">
+            <label>Pelotas disponibles</label>
+            <input id="launcher-stock" type="number" min="0" value="0">
+          </div>
+
+          <button id="launcher-fire" type="button" class="danger-button">
+            Disparar pelota
+          </button>
+
+          <button id="launcher-save-stock" type="button">
+            Actualizar stock
+          </button>
+        </div>
+
+        <div class="launcher-schedule">
+          <h3>Entrenamiento automático</h3>
+
+          <div class="row">
+            <label>Hora de inicio</label>
+            <input id="launcher-training-time" type="time">
+          </div>
+
+          <div class="row">
+            <label>Intervalo entre disparos</label>
+            <input id="launcher-interval" type="number" min="1000" step="500" value="3000">
+          </div>
+
+          <button id="launcher-save-training" type="button" class="primary">
+            Programar entrenamiento
+          </button>
+
+          <button id="launcher-stop-training" type="button">
+            Detener entrenamiento
+          </button>
+        </div>
+
+      </div>
+    </section>
     <section class="panel">
       <h2>Telegram</h2>
       <form id="telegram-form">

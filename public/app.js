@@ -163,6 +163,41 @@ let communicationProduct = null;
 let communicationConnected = false;
 let communicationMode = false;
 let communicationMessageTimeout = null;
+const launcherUpButton =
+  document.getElementById('launcher-up');
+
+const launcherDownButton =
+  document.getElementById('launcher-down');
+
+const launcherLeftButton =
+  document.getElementById('launcher-left');
+
+const launcherRightButton =
+  document.getElementById('launcher-right');
+
+const launcherFireButton =
+  document.getElementById('launcher-fire');
+
+const launcherSaveStockButton =
+  document.getElementById('launcher-save-stock');
+
+const launcherStock =
+  document.getElementById('launcher-stock');
+
+const launcherTrainingTime =
+  document.getElementById('launcher-training-time');
+
+const launcherInterval =
+  document.getElementById('launcher-interval');
+
+const launcherSaveTrainingButton =
+  document.getElementById('launcher-save-training');
+
+const launcherStopTrainingButton =
+  document.getElementById('launcher-stop-training');
+
+const launcherSectorLabel =
+  document.getElementById('launcher-sector-label');
 
 // Telegram elements
 const telegramForm = document.getElementById('telegram-form');
@@ -1177,3 +1212,309 @@ async function saveRewardConfig() {
     );
   }
 }
+
+
+let launcherH = 2;
+let launcherV = 2;
+
+function updateLauncherSectorLabel() {
+  let horizontal = 'Centro';
+  let vertical = 'Centro';
+
+  if (launcherH === 1) horizontal = 'Izquierda';
+  if (launcherH === 3) horizontal = 'Derecha';
+
+  if (launcherV === 3) vertical = 'Arriba';
+  if (launcherV === 1) vertical = 'Abajo';
+
+  launcherSectorLabel.textContent =
+    `${vertical} / ${horizontal}`;
+}
+
+async function sendLauncherCommand(payload) {
+  const res =
+    await fetch('/api/launcher/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+  const data =
+    await res.json();
+
+  if (!res.ok) {
+    throw new Error(
+      data.error ||
+      'No se pudo enviar el comando al lanzador.'
+    );
+  }
+
+  return data;
+}
+
+async function moveLauncher(h, v) {
+  try {
+    launcherH = h;
+    launcherV = v;
+
+    updateLauncherSectorLabel();
+
+    await sendLauncherCommand({
+      h: launcherH,
+      v: launcherV
+    });
+
+    showAlert(
+      'Dirección actualizada.'
+    );
+
+  } catch (e) {
+    console.error(
+      'Error moviendo lanzador:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+async function fireLauncher() {
+  try {
+    await sendLauncherCommand({
+      fire: true
+    });
+
+    showAlert(
+      'Disparo enviado.'
+    );
+
+    setTimeout(
+      loadLauncherStatus,
+      4000
+    );
+
+  } catch (e) {
+    console.error(
+      'Error disparando:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+async function loadLauncherStatus() {
+  try {
+    const res =
+      await fetch('/api/launcher/status');
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo cargar el estado del lanzador.'
+      );
+    }
+
+    launcherStock.value =
+      data.stock ?? 0;
+
+    launcherH =
+      data.horizontalSector ?? 2;
+
+    launcherV =
+      data.verticalSector ?? 2;
+
+    updateLauncherSectorLabel();
+
+  } catch (e) {
+    console.error(
+      'Error cargando estado del lanzador:',
+      e
+    );
+  }
+}
+
+async function updateLauncherStock() {
+  try {
+    const stock =
+      Number(launcherStock.value);
+
+    if (
+      !Number.isInteger(stock) ||
+      stock < 0
+    ) {
+      throw new Error(
+        'El stock debe ser un número entero mayor o igual a 0.'
+      );
+    }
+
+    await sendLauncherCommand({
+      stock: stock
+    });
+
+    showAlert(
+      'Stock actualizado en el lanzador.'
+    );
+
+    setTimeout(
+      loadLauncherStatus,
+      500
+    );
+
+  } catch (e) {
+    console.error(
+      'Error actualizando stock:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+async function saveLauncherTraining() {
+  try {
+    const payload = {
+      time:
+        launcherTrainingTime.value,
+
+      interval:
+        Number(launcherInterval.value),
+
+      stock:
+        Number(launcherStock.value)
+    };
+
+    const res =
+      await fetch('/api/launcher/training', {
+        method: 'POST',
+        headers: {
+          'Content-Type':
+            'application/json'
+        },
+        body:
+          JSON.stringify(payload)
+      });
+
+    const data =
+      await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.error ||
+        'No se pudo programar el entrenamiento.'
+      );
+    }
+
+    showAlert(
+      'Entrenamiento programado.'
+    );
+
+  } catch (e) {
+    console.error(
+      'Error programando entrenamiento:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+async function stopLauncherTraining() {
+  try {
+    await sendLauncherCommand({
+      inPlay: false
+    });
+
+    showAlert(
+      'Entrenamiento detenido.'
+    );
+
+    await loadLauncherStatus();
+
+  } catch (e) {
+    console.error(
+      'Error deteniendo entrenamiento:',
+      e
+    );
+
+    showAlert(
+      e.message,
+      'error'
+    );
+  }
+}
+
+launcherUpButton?.addEventListener('click', () => {
+  const nextV = Math.min(3, launcherV + 1);
+  moveLauncher(launcherH, nextV);
+});
+
+launcherDownButton?.addEventListener('click', () => {
+  const nextV = Math.max(1, launcherV - 1);
+  moveLauncher(launcherH, nextV);
+});
+
+launcherLeftButton?.addEventListener(
+  'click',
+  () => {
+    const nextH =
+      Math.max(1, launcherH - 1);
+
+    moveLauncher(
+      nextH,
+      launcherV
+    );
+  }
+);
+
+launcherRightButton?.addEventListener(
+  'click',
+  () => {
+    const nextH =
+      Math.min(3, launcherH + 1);
+
+    moveLauncher(
+      nextH,
+      launcherV
+    );
+  }
+);
+
+launcherFireButton?.addEventListener(
+  'click',
+  fireLauncher
+);
+
+launcherSaveTrainingButton?.addEventListener(
+  'click',
+  saveLauncherTraining
+);
+
+launcherStopTrainingButton?.addEventListener(
+  'click',
+  stopLauncherTraining
+);
+launcherSaveStockButton?.addEventListener(
+  'click',
+  updateLauncherStock
+);
+
+updateLauncherSectorLabel();
+loadLauncherStatus();
