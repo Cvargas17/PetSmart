@@ -22,8 +22,8 @@ import socket
 # ============================================================
 
 # WiFi
-WIFI_SSID     = "GalaxyA71"
-WIFI_PASSWORD = "Lanh4358"
+WIFI_SSID     = "TU_WIFI"
+WIFI_PASSWORD = "TU_CONTRASEÑA"
 
 # Pines
 SERVO_PIN    = 16
@@ -47,10 +47,6 @@ MARGEN_PESO = 5
 # Puerto servidor HTTP
 HTTP_PORT = 80
 
-# MQTT para reportar estado a servidor
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_STATUS_TOPIC = "alerta/status/feeding"
-
 # ============================================================
 # CONFIGURACIÓN DINÁMICA (se actualiza desde la app)
 # ============================================================
@@ -70,8 +66,8 @@ servo.freq(50)
 dt  = machine.Pin(HX711_DT,  machine.Pin.IN)
 sck = machine.Pin(HX711_SCK, machine.Pin.OUT)
 
-parlante = machine.PWM(machine.Pin(PARLANTE_PIN))
-parlante.duty_u16(0)
+buzzer = machine.Pin(PARLANTE_PIN, machine.Pin.OUT)
+buzzer.value(0)
 
 # ============================================================
 # FUNCIONES: SERVO
@@ -138,20 +134,19 @@ def leer_peso():
 # FUNCIONES: PARLANTE
 # ============================================================
 
-def pitido(frecuencia=1000, duracion_ms=300):
-    parlante.freq(frecuencia)
-    parlante.duty_u16(32768)
+def pitido(duracion_ms=300):
+    buzzer.value(1)
     time.sleep_ms(duracion_ms)
-    parlante.duty_u16(0)
+    buzzer.value(0)
     time.sleep_ms(100)
 
 def alerta_sin_comer():
     for _ in range(3):
-        pitido(1000, 500)
+        pitido(500)
         time.sleep_ms(200)
 
 def alerta_dispensando():
-    pitido(1500, 150)
+    pitido(150)
 
 # ============================================================
 # FUNCIONES: WIFI Y NTP
@@ -187,28 +182,6 @@ def sincronizar_ntp():
 def hora_actual():
     t = utime.localtime()
     return t[3], t[4], t[5]  # hora, minuto, segundo
-
-# ============================================================
-# FUNCIONES: REPORTAR ESTADO A MQTT
-# ============================================================
-
-ultimo_estado_mqtt = 0
-
-def reportar_estado_mqtt(retain=False):
-    global ultimo_estado_mqtt
-    try:
-        if not wlan.isconnected():
-            return
-        import umqtt.simple as mqtt
-        client = mqtt.MQTTClient(b"pico_feeding", MQTT_BROKER)
-        client.connect()
-        # Reportar online con retain cuando sea posible
-        client.publish(MQTT_STATUS_TOPIC, b"online", retain=retain)
-        client.disconnect()
-        ultimo_estado_mqtt = utime.time()
-        print("Estado 'online' reportado a MQTT")
-    except Exception as e:
-        print(f"Error reportando estado MQTT: {e}")
 
 # ============================================================
 # FUNCIONES: DISPENSADOR
@@ -392,7 +365,6 @@ servo_parar()
 
 if conectar_wifi():
     sincronizar_ntp()
-    reportar_estado_mqtt(retain=True)
 
 servidor = iniciar_servidor()
 
@@ -409,9 +381,6 @@ while True:
             verificar_consumo()
             verificar_alerta_sin_comer()
             ultimo_consumo = utime.time()
-
-        if utime.time() - ultimo_estado_mqtt > 300:
-            reportar_estado_mqtt(retain=True)
 
         try:
             conn, addr = servidor.accept()
