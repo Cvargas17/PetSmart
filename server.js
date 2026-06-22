@@ -54,6 +54,18 @@ let rewardConfig = {
   startHour: '00:00',
   endHour: '00:00'
 };
+
+let launcherStatus = {
+  stock: 0,
+  inPlay: false,
+  horizontalSector: 2,
+  verticalSector: 2,
+  flywheelSpeed: 255,
+  message: 'not_ready'
+};
+
+let launcherTrainingJob = null;
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
   if (
@@ -267,7 +279,7 @@ let feedingConfig = {
 
 let feedingConnected = false;
 let feedingLastSeen = 0;
-const FEEDING_STATUS_TIMEOUT_MS = 2000;
+const FEEDING_STATUS_TIMEOUT_MS = 30000;
 
 // Tabla configuración alimentación
 db.run(`
@@ -395,15 +407,28 @@ function handleStatusMessage(payload, isFeedingStatus = false) {
 }
 
 try {
-  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
+  mqttClient = mqtt.connect(MQTT_BROKER, {
+    clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}`,
+    reconnectPeriod: 5000,
+    resubscribe: true,
+    clean: true
+  });
   mqttClient.on('connect', () => {
     console.log('Conectado a broker MQTT:', MQTT_BROKER);
     mqttClient.subscribe(MQTT_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry:', err.message);
+      else console.log(`Suscrito a ${MQTT_STATUS_TOPIC}`);
     });
     mqttClient.subscribe(MQTT_FEEDING_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry Alimentación:', err.message);
+      else console.log(`Suscrito a ${MQTT_FEEDING_STATUS_TOPIC}`);
     });
+  });
+  mqttClient.on('reconnect', () => {
+    console.log('MQTT reconectando...');
+  });
+  mqttClient.on('offline', () => {
+    console.warn('MQTT cliente offline');
   });
   mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
   mqttClient.on('close', () => {
@@ -415,6 +440,11 @@ try {
       handleStatusMessage(payload, false);
     } else if (topic === MQTT_FEEDING_STATUS_TOPIC) {
       handleStatusMessage(payload, true);
+    }
+  });
+  mqttClient.on('packetsend', (packet) => {
+    if (packet.cmd === 'publish' && packet.topic === MQTT_FEEDING_STATUS_TOPIC) {
+      console.log('MQTT feeding status packet enviado:', packet);
     }
   });
 } catch (e) {
@@ -478,48 +508,66 @@ function notifyGateState(state, lastControl) {
   sendTelegramMessage(`Puerta ${action}\nControl: ${control}\nHora: ${new Date().toLocaleString()}`)
     .catch((err) => console.error('Error enviando notificacion Telegram:', err.message));
 }
-function handleRewardSerialMessage(line){
+function handleRewardSerialMessage(line) {
   const msg = line.toString().trim();
+
   if (!msg) return;
+
+  lastArduinoMessage = msg;
 
   console.log('Arduino:', msg);
 
   try {
     const data = JSON.parse(msg);
 
-    // Mensaje de temperatura
-    if (data.temp !== undefined) {
-      const prevFan = tempState.fan;
-      tempState.temp = parseFloat(data.temp);
-      tempState.fan = !!data.fan;
-      tempState.updatedAt = new Date().toISOString();
-
-      db.run(
-        `INSERT INTO temp_readings (temp, fan, threshold) VALUES (?, ?, ?)`,
-        [tempState.temp, tempState.fan ? 1 : 0, tempState.threshold],
-        (err) => { if (err) console.error('Error guardando lectura de temperatura:', err.message); }
-      );
-
-      if (tempState.fan !== prevFan) {
-        const estado = tempState.fan ? 'encendido' : 'apagado';
-        sendTelegramMessage(
-          `Ventilador ${estado}\nTemperatura actual: ${tempState.temp}°C\nUmbral: ${tempState.threshold}°C`
-        ).catch(e => console.error('Error enviando Telegram temp:', e.message));
-      }
-      return;
-    }
-
-    // Mensaje de recompensa
-    if (data.stock !== undefined) {
-      rewardStatus.stock = Number(data.stock);
-    }
+    // Mensajes del sistema de recompensas
     if (data.correctGuesses !== undefined) {
       rewardStatus.correctGuesses = Number(data.correctGuesses);
     }
-    console.log('Reward status actualizado:', rewardStatus);
+
+    // Stock puede venir de recompensa o lanzador.
+    if (data.stock !== undefined) {
+      rewardStatus.stock = Number(data.stock);
+      launcherStatus.stock = Number(data.stock);
+    }
+
+    // Mensajes específicos del lanzador
+    if (
+      data.device === 'ballLauncher' ||
+      data.horizontalSector !== undefined ||
+      data.verticalSector !== undefined ||
+      data.flywheelSpeed !== undefined ||
+      data.inPlay !== undefined
+    ) {
+      if (data.message !== undefined) {
+        launcherStatus.message = String(data.message);
+      }
+
+      if (data.inPlay !== undefined) {
+        launcherStatus.inPlay = Boolean(data.inPlay);
+      }
+
+      if (data.horizontalSector !== undefined) {
+        launcherStatus.horizontalSector = Number(data.horizontalSector);
+      }
+
+      if (data.verticalSector !== undefined) {
+        launcherStatus.verticalSector = Number(data.verticalSector);
+      }
+
+      if (data.flywheelSpeed !== undefined) {
+        launcherStatus.flywheelSpeed = Number(data.flywheelSpeed);
+      }
+
+      if (data.stock !== undefined) {
+        launcherStatus.stock = Number(data.stock);
+      }
+
+      console.log('Launcher status actualizado:', launcherStatus);
+    }
 
   } catch (e) {
-    // Mensaje de texto (OPENING, OPEN, CLOSED, etc.) — ignorar silenciosamente
+    console.log('Mensaje ignorado:', msg);
   }
 }
 
@@ -1436,6 +1484,227 @@ app.get('/api/temp/history', (req, res) => {
   );
 });
 
+app.post('/api/launcher/command', async (req, res) => {
+  try {
+    const payload = {};
+
+    if (req.body.stock !== undefined) {
+      const stock = Number(req.body.stock);
+
+      if (!Number.isInteger(stock) || stock < 0) {
+        return res.status(400).json({
+          error: 'stock debe ser un entero mayor o igual a 0'
+        });
+      }
+
+      payload.stock = stock;
+      launcherStatus.stock = stock;
+    }
+
+    if (req.body.flywheelSpeed !== undefined) {
+      const flywheelSpeed = Number(req.body.flywheelSpeed);
+
+      if (
+        !Number.isInteger(flywheelSpeed) ||
+        flywheelSpeed < 0 ||
+        flywheelSpeed > 255
+      ) {
+        return res.status(400).json({
+          error: 'flywheelSpeed debe estar entre 0 y 255'
+        });
+      }
+
+      payload.flywheelSpeed = flywheelSpeed;
+      launcherStatus.flywheelSpeed = flywheelSpeed;
+    }
+
+    if (req.body.h !== undefined || req.body.v !== undefined) {
+      const h = Number(req.body.h);
+      const v = Number(req.body.v);
+
+      if (
+        !Number.isInteger(h) ||
+        h < 1 ||
+        h > 3 ||
+        !Number.isInteger(v) ||
+        v < 1 ||
+        v > 3
+      ) {
+        return res.status(400).json({
+          error: 'h y v deben estar entre 1 y 3'
+        });
+      }
+
+      payload.h = h;
+      payload.v = v;
+
+      launcherStatus.horizontalSector = h;
+      launcherStatus.verticalSector = v;
+    }
+
+    if (req.body.fire !== undefined) {
+      payload.fire = Boolean(req.body.fire);
+    }
+
+    if (req.body.inPlay !== undefined) {
+      payload.inPlay = Boolean(req.body.inPlay);
+      launcherStatus.inPlay = Boolean(req.body.inPlay);
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({
+        error: 'No se recibió ningún comando válido'
+      });
+    }
+
+    await sendArduinoJson(payload);
+
+    res.json({
+      success: true,
+      sent: payload,
+      status: launcherStatus
+    });
+
+  } catch (e) {
+    console.error(
+      'Error en /api/launcher/command:',
+      e.message
+    );
+
+    res.status(500).json({
+      error: e.message
+    });
+  }
+});
+
+app.get('/api/launcher/status', (req, res) => {
+  res.json({
+    ...launcherStatus,
+    connected: !!arduinoPort?.isOpen,
+    port: ARDUINO_PORT || null,
+    lastMessage: lastArduinoMessage || null
+  });
+});
+
+
+app.post('/api/launcher/training', (req, res) => {
+  try {
+    const { time, interval, stock, flywheelSpeed } = req.body;
+
+    if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      return res.status(400).json({
+        error: 'time es requerido en formato HH:MM'
+      });
+    }
+
+    const intervalMs = Number(interval || 3000);
+
+    if (
+      !Number.isInteger(intervalMs) ||
+      intervalMs < 1000
+    ) {
+      return res.status(400).json({
+        error: 'interval debe ser un número mayor o igual a 1000 ms'
+      });
+    }
+
+    const payload = {
+      start: true,
+      interval: intervalMs
+    };
+
+    if (stock !== undefined) {
+      const parsedStock = Number(stock);
+
+      if (
+        !Number.isInteger(parsedStock) ||
+        parsedStock < 0
+      ) {
+        return res.status(400).json({
+          error: 'stock debe ser un entero mayor o igual a 0'
+        });
+      }
+
+      payload.stock = parsedStock;
+      launcherStatus.stock = parsedStock;
+    }
+
+    if (flywheelSpeed !== undefined) {
+      const parsedSpeed = Number(flywheelSpeed);
+
+      if (
+        !Number.isInteger(parsedSpeed) ||
+        parsedSpeed < 0 ||
+        parsedSpeed > 255
+      ) {
+        return res.status(400).json({
+          error: 'flywheelSpeed debe estar entre 0 y 255'
+        });
+      }
+
+      payload.flywheelSpeed = parsedSpeed;
+      launcherStatus.flywheelSpeed = parsedSpeed;
+    }
+
+    if (launcherTrainingJob) {
+      launcherTrainingJob.cancel();
+      launcherTrainingJob = null;
+    }
+
+    const [hour, minute] =
+      time.split(':').map(Number);
+
+    const cron =
+      `0 ${minute} ${hour} * * *`;
+
+    launcherTrainingJob =
+      schedule.scheduleJob(cron, async () => {
+        console.log(
+          'Iniciando entrenamiento automático del lanzador:',
+          payload
+        );
+
+        try {
+          launcherStatus.inPlay = true;
+          await sendArduinoJson(payload);
+        } catch (e) {
+          console.error(
+            'Error iniciando entrenamiento del lanzador:',
+            e.message
+          );
+        }
+      });
+
+    res.json({
+      success: true,
+      time,
+      payload
+    });
+
+  } catch (e) {
+    console.error(
+      'Error en /api/launcher/training:',
+      e.message
+    );
+
+    res.status(500).json({
+      error: e.message
+    });
+  }
+});
+
+app.delete('/api/launcher/training', (req, res) => {
+  if (launcherTrainingJob) {
+    launcherTrainingJob.cancel();
+    launcherTrainingJob = null;
+  }
+
+  res.json({
+    success: true,
+    message: 'Entrenamiento automático cancelado'
+  });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -1443,7 +1712,6 @@ app.get('*', (req, res) => {
 const server = app.listen(PORT, () => {
   console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
 });
-
 
 
 initSerial();
