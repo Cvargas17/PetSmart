@@ -22,8 +22,8 @@ import socket
 # ============================================================
 
 # WiFi
-WIFI_SSID     = "TU_WIFI"
-WIFI_PASSWORD = "TU_CONTRASEÑA"
+WIFI_SSID     = "GalaxyA71"
+WIFI_PASSWORD = "Lanh4358"
 
 # Pines
 SERVO_PIN    = 16
