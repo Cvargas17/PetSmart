@@ -28,6 +28,8 @@
 const int   OPEN_ANGLE       = 0;
 const int   CLOSED_ANGLE     = 180;
 const float VREF             = 5.0;   // voltaje de referencia del Arduino
+const float HYSTERESIS       = 1.5;   // banda muerta para evitar chattering del ventilador
+const float TEMP_OFFSET      = 55.3;  // calibración para sensor invertido: OFFSET - (voltage*100)
 const unsigned long MOVE_DELAY_MS    = 250;
 const unsigned long TEMP_INTERVAL_MS = 2000;
 
@@ -66,10 +68,19 @@ void handleCommand(const String &cmd) {
 
 // ── Temperatura / ventilador ───────────────────────────
 float readTempCelsius() {
-  // LM35: Vout = 10mV por °C (ya en Celsius, sin conversión Kelvin)
-  int   raw  = analogRead(TEMP_PIN);
-  float vout = raw * (VREF / 1023.0);
-  return vout / 0.010;
+  const int SAMPLES = 20;
+  long sum = 0;
+  for (int i = 0; i < SAMPLES; i++) {
+    sum += analogRead(TEMP_PIN);
+    delay(5);
+  }
+  float raw = sum / (float)SAMPLES;
+  float voltage = raw * (5.0 / 1023.0);
+  Serial.print("[RAW] ");
+  Serial.print(raw, 1);
+  Serial.print("  Volt: ");
+  Serial.println(voltage, 4);
+  return TEMP_OFFSET - (voltage * 100);
 }
 
 void readAndReportTemp() {
@@ -83,7 +94,8 @@ void readAndReportTemp() {
     return;
   }
 
-  bool shouldBeOn = (temp >= threshold);
+  bool shouldBeOn = fanOn ? (temp >= threshold - HYSTERESIS)
+                          : (temp >= threshold);
   if (shouldBeOn != fanOn) {
     fanOn = shouldBeOn;
     digitalWrite(FAN_PIN, fanOn ? HIGH : LOW);
@@ -92,11 +104,8 @@ void readAndReportTemp() {
     Serial.println(fanOn ? "GIRANDO" : "DETENIDO");
   }
 
-  int   rawDebug  = analogRead(TEMP_PIN);
-  float voltDebug = rawDebug * (VREF / 1023.0);
-  Serial.print("[DEBUG] RAW: ");
-  Serial.print(rawDebug);
-  Serial.print("  |  Volt: ");
+  float voltDebug = temp * 0.010;
+  Serial.print("[DEBUG] Volt: ");
   Serial.print(voltDebug, 3);
   Serial.print("V  |  Temp: ");
   Serial.print(temp, 1);
