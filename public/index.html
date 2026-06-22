@@ -240,6 +240,88 @@
       </table>
     </section>
 
+    <!-- Sistema de Alimentación -->
+    <section class="panel" id="feeding-panel">
+      <h2>Sistema de Alimentación</h2>
+      <div class="connection-status">
+        <span id="feeding-dot" class="status-dot"></span>
+        <span id="feeding-status-text">Verificando conexión...</span>
+      </div>
+
+      <div class="row">
+        <strong>Peso actual en bandeja:</strong> <span id="feeding-current-weight">--</span> g
+      </div>
+
+      <div class="row">
+        <strong>Última dispensación:</strong> <span id="feeding-last-dispense">---</span>
+      </div>
+
+      <div class="row">
+        <strong>Total dispensado hoy:</strong> <span id="feeding-total-dispensed">--</span> g
+      </div>
+
+      <div class="row">
+        <label>Cantidad de alimento (gramos)</label>
+        <input id="feeding-portion-grams" type="number" min="10" max="500" value="100" />
+      </div>
+
+      <div class="actions">
+        <button id="feeding-dispense-button" type="button" class="primary" disabled>
+          Dispensar Manualmente
+        </button>
+        <button id="feeding-refresh-button" type="button" class="secondary" disabled>
+          Refrescar Estado
+        </button>
+      </div>
+
+      <div class="row" style="margin-top:20px;">
+        <h3>Configuración</h3>
+      </div>
+
+      <div class="row">
+        <label>Peso por porción (gramos)</label>
+        <input id="feeding-config-portion" type="number" min="10" max="500" value="100" />
+      </div>
+
+      <div class="row">
+        <label>Horas sin comer antes de alerta</label>
+        <input id="feeding-config-alert-hours" type="number" min="1" max="24" value="4" />
+      </div>
+
+      <div class="row">
+        <label>Horario de alimentación (HH:MM)</label>
+        <input id="feeding-schedule-time" type="time" />
+      </div>
+
+      <div class="actions">
+        <button id="feeding-save-config-button" type="button" class="secondary" disabled>
+          Guardar Configuración
+        </button>
+      </div>
+
+      <div id="feeding-schedule-list" style="margin-top:20px;">
+        <h3>Horarios Programados</h3>
+        <table id="feeding-schedules-table" style="width:100%;margin-top:10px;">
+          <thead>
+            <tr><th>Hora</th><th>Acciones</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Historial de Alimentación</h3>
+      <table id="feeding-history-table">
+        <thead>
+          <tr><th>Fecha/Hora</th><th>Dispensado (g)</th><th>Comido (g)</th><th>Tipo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4" class="empty">Cargando historial...</td></tr>
+        </tbody>
+      </table>
+    </section>
+
     <section class="panel">
       <h2>Telegram</h2>
       <form id="telegram-form">
