@@ -207,7 +207,25 @@ const telegramChatIdInput = document.getElementById('telegram-chat-id');
 const telegramEnabledInput = document.getElementById('telegram-enabled');
 const telegramTestButton = document.getElementById('telegram-test-button');
 
+// Feeding system elements
+const feedingStatusDot = document.getElementById('feeding-dot');
+const feedingStatusText = document.getElementById('feeding-status-text');
+const feedingCurrentWeight = document.getElementById('feeding-current-weight');
+const feedingLastDispense = document.getElementById('feeding-last-dispense');
+const feedingTotalDispensed = document.getElementById('feeding-total-dispensed');
+const feedingPortionGrams = document.getElementById('feeding-portion-grams');
+const feedingDispenseButton = document.getElementById('feeding-dispense-button');
+const feedingRefreshButton = document.getElementById('feeding-refresh-button');
+const feedingConfigPortion = document.getElementById('feeding-config-portion');
+const feedingConfigAlertHours = document.getElementById('feeding-config-alert-hours');
+const feedingScheduleTime = document.getElementById('feeding-schedule-time');
+const feedingSaveConfigButton = document.getElementById('feeding-save-config-button');
+const feedingSchedulesTableBody = document.querySelector('#feeding-schedules-table tbody');
+const feedingHistoryTableBody = document.querySelector('#feeding-history-table tbody');
+
 let selectedProductId = null;
+let feedingConnected = false;
+let feedingSchedules = [];
 
 async function fetchProducts() {
   const response = await fetch('/api/products');
@@ -858,6 +876,224 @@ async function refreshGate() {
 
 refreshGate();
 setInterval(refreshGate, 1000);
+
+// ===== SISTEMA DE ALIMENTACIÓN =====
+
+async function loadFeedingConnection() {
+  try {
+    const res = await fetch('/api/feeding/connection');
+    if (!res.ok) return;
+    const data = await res.json();
+    feedingConnected = !!data.connected;
+
+    if (feedingConnected) {
+      feedingStatusDot.className = 'status-dot connected';
+      feedingStatusText.textContent = 'Conectada (online)';
+      feedingDispenseButton.disabled = false;
+      feedingRefreshButton.disabled = false;
+      feedingSaveConfigButton.disabled = false;
+    } else {
+      feedingStatusDot.className = 'status-dot disconnected';
+      feedingStatusText.textContent = 'No conectada (esperando conexión)';
+      feedingDispenseButton.disabled = true;
+      feedingRefreshButton.disabled = true;
+      feedingSaveConfigButton.disabled = true;
+    }
+  } catch (e) {
+    console.error('Error verificando conexión de alimentación', e);
+    feedingConnected = false;
+    feedingStatusDot.className = 'status-dot disconnected';
+    feedingStatusText.textContent = 'Error al verificar conexión';
+    feedingDispenseButton.disabled = true;
+    feedingRefreshButton.disabled = true;
+    feedingSaveConfigButton.disabled = true;
+  }
+}
+
+async function loadFeedingStatus() {
+  try {
+    const res = await fetch('/api/feeding/status');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    feedingCurrentWeight.textContent = data.currentWeight || '0';
+    feedingLastDispense.textContent = data.lastDispense ? new Date(data.lastDispense).toLocaleString() : '---';
+    feedingTotalDispensed.textContent = data.totalFed || '0';
+    
+    if (data.config) {
+      feedingConfigPortion.value = data.config.portionWeight || 100;
+      feedingConfigAlertHours.value = data.config.hoursWithoutEating || 4;
+      feedingSchedules = data.config.schedules || [];
+      updateFeedingSchedulesTable();
+    }
+  } catch (e) {
+    console.error('Error cargando estado de alimentación', e);
+  }
+}
+
+async function dispenseFeed() {
+  if (!feedingConnected) {
+    showAlert('Sistema de alimentación no conectado', 'error');
+    return;
+  }
+
+  const grams = parseInt(feedingPortionGrams.value) || 100;
+
+  try {
+    const res = await fetch('/api/feeding/dispense', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grams })
+    });
+
+    const data = await res.json();
+    
+    if (!res.ok) {
+      showAlert(data.error || 'Error dispensando alimento', 'error');
+      return;
+    }
+
+    showAlert(`Dispensando ${grams}g...`);
+    feedingDispenseButton.disabled = true;
+    
+    setTimeout(() => {
+      loadFeedingStatus();
+      feedingDispenseButton.disabled = false;
+    }, 6000);
+  } catch (e) {
+    showAlert('Error de conexión al servidor', 'error');
+  }
+}
+
+async function saveFeedingConfig() {
+  if (!feedingConnected) {
+    showAlert('Sistema de alimentación no conectado', 'error');
+    return;
+  }
+
+  const portionWeight = parseInt(feedingConfigPortion.value) || 100;
+  const hoursWithoutEating = parseInt(feedingConfigAlertHours.value) || 4;
+
+  try {
+    const res = await fetch('/api/feeding/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        portionWeight,
+        hoursWithoutEating,
+        schedules: feedingSchedules
+      })
+    });
+
+    const data = await res.json();
+    
+    if (!res.ok) {
+      showAlert(data.error || 'Error guardando configuración', 'error');
+      return;
+    }
+
+    showAlert('Configuración guardada correctamente');
+    loadFeedingStatus();
+  } catch (e) {
+    showAlert('Error de conexión al servidor', 'error');
+  }
+}
+
+async function loadFeedingHistory() {
+  try {
+    const res = await fetch('/api/feeding/history?limit=20');
+    if (!res.ok) return;
+    const history = await res.json();
+
+    feedingHistoryTableBody.innerHTML = '';
+    
+    if (!history.length) {
+      feedingHistoryTableBody.innerHTML = '<tr><td colspan="4" class="empty">Sin historial de alimentación</td></tr>';
+      return;
+    }
+
+    history.forEach(record => {
+      const row = document.createElement('tr');
+      const fecha = new Date(record.created_at).toLocaleString();
+      const tipo = record.scheduled ? 'Programado' : 'Manual';
+      row.innerHTML = `
+        <td>${fecha}</td>
+        <td>${record.dispensed_grams || '0'}</td>
+        <td>${record.eaten_grams || '---'}</td>
+        <td>${tipo}</td>
+      `;
+      feedingHistoryTableBody.appendChild(row);
+    });
+  } catch (e) {
+    console.error('Error cargando historial de alimentación', e);
+  }
+}
+
+function updateFeedingSchedulesTable() {
+  feedingSchedulesTableBody.innerHTML = '';
+  
+  if (!feedingSchedules.length) {
+    feedingSchedulesTableBody.innerHTML = '<tr><td colspan="2" class="empty">Sin horarios programados</td></tr>';
+    return;
+  }
+
+  feedingSchedules.forEach((schedule, index) => {
+    const row = document.createElement('tr');
+    const hora = typeof schedule === 'string' ? schedule : `${schedule.hora || 0}:${String(schedule.minuto || 0).padStart(2, '0')}`;
+    row.innerHTML = `
+      <td>${hora}</td>
+      <td>
+        <button class="small danger" data-index="${index}" onclick="removeFeedingSchedule(${index})">Eliminar</button>
+      </td>
+    `;
+    feedingSchedulesTableBody.appendChild(row);
+  });
+}
+
+function addFeedingSchedule() {
+  const timeInput = feedingScheduleTime.value;
+  if (!timeInput) {
+    showAlert('Por favor selecciona una hora', 'error');
+    return;
+  }
+
+  const [hora, minuto] = timeInput.split(':').map(x => parseInt(x));
+  
+  if (feedingSchedules.some(s => {
+    const sh = typeof s === 'string' ? s.split(':')[0] : s.hora;
+    const sm = typeof s === 'string' ? s.split(':')[1] : s.minuto;
+    return parseInt(sh) === hora && parseInt(sm) === minuto;
+  })) {
+    showAlert('Este horario ya existe', 'error');
+    return;
+  }
+
+  feedingSchedules.push({ hora, minuto });
+  feedingScheduleTime.value = '';
+  updateFeedingSchedulesTable();
+  showAlert('Horario agregado');
+}
+
+function removeFeedingSchedule(index) {
+  feedingSchedules.splice(index, 1);
+  updateFeedingSchedulesTable();
+  showAlert('Horario eliminado');
+}
+
+// Event listeners para alimentación
+feedingDispenseButton?.addEventListener('click', dispenseFeed);
+feedingRefreshButton?.addEventListener('click', loadFeedingStatus);
+feedingSaveConfigButton?.addEventListener('click', saveFeedingConfig);
+
+// Llamar a loadFeedingConnection cada segundo
+async function refreshFeeding() {
+  await loadFeedingConnection();
+}
+
+refreshFeeding();
+setInterval(refreshFeeding, 2000);
+setInterval(loadFeedingStatus, 3000);
+setInterval(loadFeedingHistory, 5000);
 
 // ===== SENSOR DE MOVIMIENTO =====
 

@@ -181,6 +181,18 @@ db.run(`
         });
     }
   });
+
+  // Ensure default communication system product exists (useful if DB already existed)
+  db.get(`SELECT id FROM products WHERE name = ?`, ['sistema de comunicación'], (err, row) => {
+    if (err) return console.error('Error comprobando producto por defecto:', err.message);
+    if (!row) {
+      db.run(`INSERT INTO products (name, sku, quantity, status, notes) VALUES (?, ?, ?, ?, ?)`,
+        ['sistema de comunicación', 'RPI-PICO-W', 1, 'activo', 'Habla con tu mascota'], (ierr) => {
+          if (ierr) console.error('Error insertando producto por defecto:', ierr.message);
+          else console.log('Producto por defecto "sistema de comunicación" agregado.');
+        });
+    }
+  });
 });
 
 db.run(`
@@ -249,6 +261,67 @@ db.run(`
   if (err) console.error('Error creando tabla temp_readings:', err.message);
 });
 
+// ===== SISTEMA DE ALIMENTACIÓN =====
+let feedingState = {
+  currentWeight: 0,
+  lastDispense: null,
+  totalFed: 0,
+  isDispensing: false,
+  updatedAt: null
+};
+
+let feedingConfig = {
+  portionWeight: 100,
+  hoursWithoutEating: 4,
+  schedules: [],
+  updatedAt: null
+};
+
+let feedingConnected = false;
+let feedingLastSeen = 0;
+const FEEDING_STATUS_TIMEOUT_MS = 30000;
+
+// Tabla configuración alimentación
+db.run(`
+  CREATE TABLE IF NOT EXISTS feeding_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    portion_weight REAL DEFAULT 100,
+    hours_without_eating INTEGER DEFAULT 4,
+    schedules TEXT DEFAULT '[]',
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla feeding_config:', err.message);
+  else {
+    db.run(`INSERT OR IGNORE INTO feeding_config (id, portion_weight, hours_without_eating, schedules, updated_at) VALUES (1, 100, 4, '[]', CURRENT_TIMESTAMP)`);
+    // Cargar configuración persistida
+    db.get('SELECT portion_weight, hours_without_eating, schedules FROM feeding_config WHERE id = 1', [], (e, row) => {
+      if (!e && row) {
+        feedingConfig.portionWeight = row.portion_weight || 100;
+        feedingConfig.hoursWithoutEating = row.hours_without_eating || 4;
+        try {
+          feedingConfig.schedules = JSON.parse(row.schedules || '[]');
+        } catch (pe) {
+          feedingConfig.schedules = [];
+        }
+      }
+    });
+  }
+});
+
+// Tabla historial de dispensación
+db.run(`
+  CREATE TABLE IF NOT EXISTS feeding_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispensed_grams REAL NOT NULL,
+    eaten_grams REAL,
+    scheduled INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla feeding_history:', err.message);
+});
+
 // Serial port setup
 const ARDUINO_PORT = process.env.ARDUINO_PORT || 'DEMO';
 let arduinoPort = null;
@@ -261,6 +334,7 @@ const OPEN_DURATION_MS = 3000; // must match Arduino OPEN duration
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
 const MQTT_TOPIC = process.env.MQTT_TOPIC || 'alerta';
 const MQTT_STATUS_TOPIC = process.env.MQTT_STATUS_TOPIC || 'alerta/status';
+const MQTT_FEEDING_STATUS_TOPIC = process.env.MQTT_FEEDING_STATUS_TOPIC || 'alerta/status/feeding';
 let mqttClient = null;
 let raspberryConnected = false;
 let raspberryLastSeen = 0;
@@ -273,55 +347,104 @@ function updateRaspberryStatus(isConnected) {
   }
 }
 
-function handleStatusMessage(payload) {
+function updateFeedingStatus(isConnected) {
+  feedingConnected = !!isConnected;
+  if (feedingConnected) {
+    feedingLastSeen = Date.now();
+  }
+  console.log(`Feeding status updated: connected=${feedingConnected} lastSeen=${feedingLastSeen}`);
+}
+
+function handleStatusMessage(payload, isFeedingStatus = false) {
   try {
     let message = payload.toString().trim();
+    console.log(`MQTT message received on ${isFeedingStatus ? MQTT_FEEDING_STATUS_TOPIC : MQTT_STATUS_TOPIC}:`, message);
     if ((message.startsWith('"') && message.endsWith('"')) || (message.startsWith("'") && message.endsWith("'"))) {
       message = message.slice(1, -1).trim();
     }
 
     const normalized = message.toLowerCase();
     if (normalized === 'online' || normalized === '1' || normalized === 'true') {
-      updateRaspberryStatus(true);
+      if (isFeedingStatus) {
+        updateFeedingStatus(true);
+      } else {
+        updateRaspberryStatus(true);
+      }
       return;
     }
 
     if (normalized === 'offline' || normalized === '0' || normalized === 'false') {
-      updateRaspberryStatus(false);
+      if (isFeedingStatus) {
+        updateFeedingStatus(false);
+      } else {
+        updateRaspberryStatus(false);
+      }
       return;
     }
 
     if (message.startsWith('{') || message.startsWith('[')) {
       const data = JSON.parse(message);
       if (data.status === 'online' || data.connected === true) {
-        updateRaspberryStatus(true);
+        if (isFeedingStatus) {
+          updateFeedingStatus(true);
+        } else {
+          updateRaspberryStatus(true);
+        }
         return;
       }
       if (data.status === 'offline' || data.connected === false) {
-        updateRaspberryStatus(false);
+        if (isFeedingStatus) {
+          updateFeedingStatus(false);
+        } else {
+          updateRaspberryStatus(false);
+        }
         return;
       }
     }
   } catch (e) {
-    console.warn('No se pudo parsear estado Raspberry MQTT:', e.message);
+    console.warn('No se pudo parsear estado MQTT:', e.message);
   }
 }
 
 try {
-  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
+  mqttClient = mqtt.connect(MQTT_BROKER, {
+    clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}`,
+    reconnectPeriod: 5000,
+    resubscribe: true,
+    clean: true
+  });
   mqttClient.on('connect', () => {
     console.log('Conectado a broker MQTT:', MQTT_BROKER);
     mqttClient.subscribe(MQTT_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry:', err.message);
+      else console.log(`Suscrito a ${MQTT_STATUS_TOPIC}`);
     });
+    mqttClient.subscribe(MQTT_FEEDING_STATUS_TOPIC, { qos: 1 }, (err) => {
+      if (err) console.error('Error suscribiendo al estado Raspberry Alimentación:', err.message);
+      else console.log(`Suscrito a ${MQTT_FEEDING_STATUS_TOPIC}`);
+    });
+  });
+  mqttClient.on('reconnect', () => {
+    console.log('MQTT reconectando...');
+  });
+  mqttClient.on('offline', () => {
+    console.warn('MQTT cliente offline');
   });
   mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
   mqttClient.on('close', () => {
     console.warn('MQTT conexión cerrada');
   });
   mqttClient.on('message', (topic, payload) => {
+    console.log('MQTT message topic:', topic);
     if (topic === MQTT_STATUS_TOPIC) {
-      handleStatusMessage(payload);
+      handleStatusMessage(payload, false);
+    } else if (topic === MQTT_FEEDING_STATUS_TOPIC) {
+      handleStatusMessage(payload, true);
+    }
+  });
+  mqttClient.on('packetsend', (packet) => {
+    if (packet.cmd === 'publish' && packet.topic === MQTT_FEEDING_STATUS_TOPIC) {
+      console.log('MQTT feeding status packet enviado:', packet);
     }
   });
 } catch (e) {
@@ -618,12 +741,16 @@ function cancelScheduledJob(id) {
 }
 
 app.get('/api/products', (req, res) => {
-  db.all('SELECT id, name, sku, sku AS type, quantity, status, notes, created_at FROM products ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  db.all(
+    "SELECT id, name, sku, sku AS type, quantity, status, notes, created_at FROM products WHERE name != 'sistema de alimentación' ORDER BY created_at DESC",
+    [],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
     }
-    res.json(rows);
-  });
+  );
 });
 
 app.post('/api/products', (req, res) => {
@@ -786,6 +913,123 @@ app.get('/api/communication/connection', (req, res) => {
     statusTopic: MQTT_STATUS_TOPIC,
     lastSeen: raspberryLastSeen || null
   });
+});
+
+// ===== FEEDING SYSTEM ENDPOINTS =====
+
+app.get('/api/feeding/connection', (req, res) => {
+  const now = Date.now();
+  if (feedingConnected && now - feedingLastSeen > FEEDING_STATUS_TIMEOUT_MS) {
+    feedingConnected = false;
+  }
+
+  res.json({
+    connected: feedingConnected,
+    broker: MQTT_BROKER,
+    statusTopic: MQTT_FEEDING_STATUS_TOPIC,
+    lastSeen: feedingLastSeen || null
+  });
+});
+
+app.get('/api/feeding/status', (req, res) => {
+  res.json({
+    currentWeight: feedingState.currentWeight,
+    lastDispense: feedingState.lastDispense,
+    totalFed: feedingState.totalFed,
+    isDispensing: feedingState.isDispensing,
+    updatedAt: feedingState.updatedAt,
+    config: feedingConfig
+  });
+});
+
+app.post('/api/feeding/dispense', (req, res) => {
+  const { grams } = req.body;
+  const portionGrams = grams || feedingConfig.portionWeight || 100;
+
+  if (!feedingConnected) {
+    return res.status(503).json({ error: 'Sistema de alimentación no conectado' });
+  }
+
+  try {
+    feedingState.isDispensing = true;
+    feedingState.updatedAt = new Date().toISOString();
+
+    db.run(
+      `INSERT INTO feeding_history (dispensed_grams, scheduled) VALUES (?, ?)`,
+      [portionGrams, 0],
+      (err) => {
+        if (err) console.error('Error guardando dispensación:', err.message);
+      }
+    );
+
+    res.json({ 
+      status: 'dispensando', 
+      grams: portionGrams,
+      message: 'Dispensación iniciada'
+    });
+
+    // Simular fin de dispensación después de 5 segundos (en producción, se actualizaría vía MQTT)
+    setTimeout(() => {
+      feedingState.isDispensing = false;
+      feedingState.lastDispense = new Date().toISOString();
+      feedingState.totalFed += portionGrams;
+      feedingState.updatedAt = new Date().toISOString();
+    }, 5000);
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/feeding/config', (req, res) => {
+  const { portionWeight, hoursWithoutEating, schedules } = req.body;
+
+  if (typeof portionWeight === 'number' && portionWeight > 0) {
+    feedingConfig.portionWeight = portionWeight;
+  }
+
+  if (typeof hoursWithoutEating === 'number' && hoursWithoutEating > 0) {
+    feedingConfig.hoursWithoutEating = hoursWithoutEating;
+  }
+
+  if (Array.isArray(schedules)) {
+    feedingConfig.schedules = schedules;
+  }
+
+  feedingConfig.updatedAt = new Date().toISOString();
+
+  try {
+    db.run(
+      `UPDATE feeding_config SET portion_weight = ?, hours_without_eating = ?, schedules = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+      [feedingConfig.portionWeight, feedingConfig.hoursWithoutEating, JSON.stringify(feedingConfig.schedules)],
+      (err) => {
+        if (err) {
+          console.error('Error guardando configuración de alimentación:', err.message);
+          return res.status(500).json({ error: 'Error guardando configuración' });
+        }
+        res.json({ 
+          status: 'ok',
+          config: feedingConfig,
+          message: 'Configuración guardada'
+        });
+      }
+    );
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/feeding/history', (req, res) => {
+  const limit = req.query.limit || 20;
+  
+  db.all(
+    `SELECT id, dispensed_grams, eaten_grams, scheduled, created_at FROM feeding_history ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
 });
 
 app.get('/api/gate/schedules', (req, res) => {
