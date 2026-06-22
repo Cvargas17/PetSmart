@@ -238,6 +238,7 @@ db.run(`
 });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // ===== SISTEMA DE ALIMENTACIÓN =====
 let feedingState = {
   currentWeight: 0,
@@ -299,6 +300,8 @@ db.run(`
   if (err) console.error('Error creando tabla feeding_history:', err.message);
 });
 
+=======
+>>>>>>> parent of e472883 (sistema de alimentación)
 =======
 >>>>>>> parent of e472883 (sistema de alimentación)
 // Serial port setup
@@ -373,6 +376,7 @@ try {
       else console.log(`Suscrito a ${MQTT_STATUS_TOPIC}`);
     });
 <<<<<<< HEAD
+<<<<<<< HEAD
     mqttClient.subscribe(MQTT_FEEDING_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry Alimentación:', err.message);
       else console.log(`Suscrito a ${MQTT_FEEDING_STATUS_TOPIC}`);
@@ -385,6 +389,8 @@ try {
   });
   mqttClient.on('offline', () => {
     console.warn('MQTT cliente offline');
+=======
+>>>>>>> parent of e472883 (sistema de alimentación)
   });
   mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
   mqttClient.on('close', () => {
@@ -393,11 +399,14 @@ try {
   mqttClient.on('message', (topic, payload) => {
     if (topic === MQTT_STATUS_TOPIC) {
       handleStatusMessage(payload);
+<<<<<<< HEAD
     }
   });
   mqttClient.on('packetsend', (packet) => {
     if (packet.cmd === 'publish' && packet.topic === MQTT_FEEDING_STATUS_TOPIC) {
       console.log('MQTT feeding status packet enviado:', packet);
+=======
+>>>>>>> parent of e472883 (sistema de alimentación)
     }
   });
 } catch (e) {
