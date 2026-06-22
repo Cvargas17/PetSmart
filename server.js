@@ -1032,6 +1032,13 @@ app.get('/api/feeding/history', (req, res) => {
   );
 });
 
+app.delete('/api/feeding/history', (req, res) => {
+  db.run('DELETE FROM feeding_history', (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ status: 'ok', message: 'Historial limpiado' });
+  });
+});
+
 app.get('/api/gate/schedules', (req, res) => {
   db.all('SELECT id, time, end_time, enabled, created_at FROM schedules ORDER BY created_at DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });

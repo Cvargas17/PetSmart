@@ -220,6 +220,7 @@ const feedingConfigPortion = document.getElementById('feeding-config-portion');
 const feedingConfigAlertHours = document.getElementById('feeding-config-alert-hours');
 const feedingScheduleTime = document.getElementById('feeding-schedule-time');
 const feedingSaveConfigButton = document.getElementById('feeding-save-config-button');
+const feedingClearHistoryButton = document.getElementById('feeding-clear-history-button');
 const feedingSchedulesTableBody = document.querySelector('#feeding-schedules-table tbody');
 const feedingHistoryTableBody = document.querySelector('#feeding-history-table tbody');
 
@@ -1029,6 +1030,29 @@ async function loadFeedingHistory() {
   }
 }
 
+async function clearFeedingHistory() {
+  if (!confirm('¿Deseas limpiar todo el historial de alimentación?')) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/feeding/history', {
+      method: 'DELETE'
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Error limpiando historial');
+    }
+
+    showAlert('Historial de alimentación limpiado');
+    await loadFeedingHistory();
+  } catch (e) {
+    console.error('Error limpiando historial de alimentación', e);
+    showAlert(e.message || 'Error limpiando historial', 'error');
+  }
+}
+
 function updateFeedingSchedulesTable() {
   feedingSchedulesTableBody.innerHTML = '';
   
@@ -1084,6 +1108,7 @@ function removeFeedingSchedule(index) {
 feedingDispenseButton?.addEventListener('click', dispenseFeed);
 feedingRefreshButton?.addEventListener('click', loadFeedingStatus);
 feedingSaveConfigButton?.addEventListener('click', saveFeedingConfig);
+feedingClearHistoryButton?.addEventListener('click', clearFeedingHistory);
 
 // Llamar a loadFeedingConnection cada segundo
 async function refreshFeeding() {
