@@ -279,7 +279,7 @@ let feedingConfig = {
 
 let feedingConnected = false;
 let feedingLastSeen = 0;
-const FEEDING_STATUS_TIMEOUT_MS = 30000;
+const FEEDING_STATUS_TIMEOUT_MS = 60000;
 
 // Tabla configuración alimentación
 db.run(`
@@ -335,10 +335,12 @@ const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
 const MQTT_TOPIC = process.env.MQTT_TOPIC || 'alerta';
 const MQTT_STATUS_TOPIC = process.env.MQTT_STATUS_TOPIC || 'alerta/status';
 const MQTT_FEEDING_STATUS_TOPIC = process.env.MQTT_FEEDING_STATUS_TOPIC || 'alerta/status/feeding';
+const FEEDING_DEVICE_IP = process.env.FEEDING_DEVICE_IP || '';
+const FEEDING_DEVICE_PORT = Number(process.env.FEEDING_DEVICE_PORT || 80);
 let mqttClient = null;
 let raspberryConnected = false;
 let raspberryLastSeen = 0;
-const RASPBERRY_STATUS_TIMEOUT_MS = 1000;
+const RASPBERRY_STATUS_TIMEOUT_MS = 30000;
 
 function updateRaspberryStatus(isConnected) {
   raspberryConnected = !!isConnected;
@@ -353,6 +355,77 @@ function updateFeedingStatus(isConnected) {
     feedingLastSeen = Date.now();
   }
   console.log(`Feeding status updated: connected=${feedingConnected} lastSeen=${feedingLastSeen}`);
+}
+
+function getFeedingDeviceUrl() {
+  if (!FEEDING_DEVICE_IP) {
+    return null;
+  }
+  return `http://${FEEDING_DEVICE_IP}:${FEEDING_DEVICE_PORT}`;
+}
+
+async function fetchFeedingDevice(path, options = {}) {
+  const baseUrl = getFeedingDeviceUrl();
+  if (!baseUrl) {
+    throw new Error('FEEDING_DEVICE_IP no configurada');
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (e) {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `Error ${response.status}`);
+  }
+
+  return data;
+}
+
+async function refreshFeedingFromDevice() {
+  const baseUrl = getFeedingDeviceUrl();
+  if (!baseUrl) {
+    return;
+  }
+
+  try {
+    const data = await fetchFeedingDevice('/estado');
+    if (data && typeof data === 'object') {
+      if (typeof data.peso_actual !== 'undefined') {
+        feedingState.currentWeight = Number(data.peso_actual) || 0;
+      }
+      if (data.hora) {
+        feedingState.updatedAt = new Date().toISOString();
+      }
+      if (data.config) {
+        if (typeof data.config.peso_porcion !== 'undefined') {
+          feedingConfig.portionWeight = data.config.peso_porcion;
+        }
+        if (typeof data.config.horas_sin_comer !== 'undefined') {
+          feedingConfig.hoursWithoutEating = data.config.horas_sin_comer;
+        }
+        if (Array.isArray(data.config.horarios)) {
+          feedingConfig.schedules = data.config.horarios;
+        }
+        feedingConfig.updatedAt = new Date().toISOString();
+      }
+      updateFeedingStatus(true);
+      feedingState.updatedAt = new Date().toISOString();
+    }
+  } catch (e) {
+    console.warn('No se pudo actualizar estado del sistema de alimentación:', e.message);
+  }
 }
 
 function handleStatusMessage(payload, isFeedingStatus = false) {
@@ -917,10 +990,16 @@ app.get('/api/communication/connection', (req, res) => {
 
 // ===== FEEDING SYSTEM ENDPOINTS =====
 
-app.get('/api/feeding/connection', (req, res) => {
+app.get('/api/feeding/connection', async (req, res) => {
   const now = Date.now();
   if (feedingConnected && now - feedingLastSeen > FEEDING_STATUS_TIMEOUT_MS) {
     feedingConnected = false;
+  }
+
+  try {
+    await refreshFeedingFromDevice();
+  } catch (e) {
+    // Si no se puede consultar el dispositivo directamente, se mantiene el estado MQTT.
   }
 
   res.json({
@@ -931,7 +1010,13 @@ app.get('/api/feeding/connection', (req, res) => {
   });
 });
 
-app.get('/api/feeding/status', (req, res) => {
+app.get('/api/feeding/status', async (req, res) => {
+  try {
+    await refreshFeedingFromDevice();
+  } catch (e) {
+    // Ignorar errores de polling y responder con el último estado local
+  }
+
   res.json({
     currentWeight: feedingState.currentWeight,
     lastDispense: feedingState.lastDispense,
@@ -942,15 +1027,20 @@ app.get('/api/feeding/status', (req, res) => {
   });
 });
 
-app.post('/api/feeding/dispense', (req, res) => {
+app.post('/api/feeding/dispense', async (req, res) => {
   const { grams } = req.body;
-  const portionGrams = grams || feedingConfig.portionWeight || 100;
+  const portionGrams = Number(grams || feedingConfig.portionWeight || 100);
 
-  if (!feedingConnected) {
-    return res.status(503).json({ error: 'Sistema de alimentación no conectado' });
+  if (!feedingConnected && !getFeedingDeviceUrl()) {
+    return res.status(503).json({ error: 'Sistema de alimentación no conectado o sin IP configurada' });
   }
 
   try {
+    const baseUrl = getFeedingDeviceUrl();
+    if (!baseUrl) {
+      return res.status(503).json({ error: 'FEEDING_DEVICE_IP no configurada' });
+    }
+
     feedingState.isDispensing = true;
     feedingState.updatedAt = new Date().toISOString();
 
@@ -962,26 +1052,31 @@ app.post('/api/feeding/dispense', (req, res) => {
       }
     );
 
-    res.json({ 
-      status: 'dispensando', 
-      grams: portionGrams,
-      message: 'Dispensación iniciada'
+    const response = await fetch(`${baseUrl}/dispensar?gramos=${portionGrams}`, {
+      method: 'POST'
     });
+    const data = await response.json().catch(() => ({}));
 
-    // Simular fin de dispensación después de 5 segundos (en producción, se actualizaría vía MQTT)
-    setTimeout(() => {
-      feedingState.isDispensing = false;
-      feedingState.lastDispense = new Date().toISOString();
-      feedingState.totalFed += portionGrams;
-      feedingState.updatedAt = new Date().toISOString();
-    }, 5000);
+    if (!response.ok) {
+      throw new Error(data.error || data.message || 'Error enviando la orden al dispensador');
+    }
 
+    feedingState.lastDispense = new Date().toISOString();
+    feedingState.updatedAt = new Date().toISOString();
+
+    res.json({
+      status: 'dispensando',
+      grams: portionGrams,
+      message: data.message || 'Dispensación iniciada'
+    });
   } catch (e) {
+    feedingState.isDispensing = false;
+    console.error('Error dispensando alimento:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/feeding/config', (req, res) => {
+app.post('/api/feeding/config', async (req, res) => {
   const { portionWeight, hoursWithoutEating, schedules } = req.body;
 
   if (typeof portionWeight === 'number' && portionWeight > 0) {
@@ -999,6 +1094,19 @@ app.post('/api/feeding/config', (req, res) => {
   feedingConfig.updatedAt = new Date().toISOString();
 
   try {
+    const baseUrl = getFeedingDeviceUrl();
+    if (baseUrl) {
+      await fetch(`${baseUrl}/configurar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          peso_porcion: feedingConfig.portionWeight,
+          horas_sin_comer: feedingConfig.hoursWithoutEating,
+          horarios: feedingConfig.schedules
+        })
+      });
+    }
+
     db.run(
       `UPDATE feeding_config SET portion_weight = ?, hours_without_eating = ?, schedules = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
       [feedingConfig.portionWeight, feedingConfig.hoursWithoutEating, JSON.stringify(feedingConfig.schedules)],
@@ -1015,6 +1123,7 @@ app.post('/api/feeding/config', (req, res) => {
       }
     );
   } catch (e) {
+    console.error('Error al enviar configuración al dispensador:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
