@@ -267,7 +267,7 @@ let feedingConfig = {
 
 let feedingConnected = false;
 let feedingLastSeen = 0;
-const FEEDING_STATUS_TIMEOUT_MS = 30000;
+const FEEDING_STATUS_TIMEOUT_MS = 2000;
 
 // Tabla configuración alimentación
 db.run(`
@@ -395,28 +395,15 @@ function handleStatusMessage(payload, isFeedingStatus = false) {
 }
 
 try {
-  mqttClient = mqtt.connect(MQTT_BROKER, {
-    clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}`,
-    reconnectPeriod: 5000,
-    resubscribe: true,
-    clean: true
-  });
+  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}` });
   mqttClient.on('connect', () => {
     console.log('Conectado a broker MQTT:', MQTT_BROKER);
     mqttClient.subscribe(MQTT_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry:', err.message);
-      else console.log(`Suscrito a ${MQTT_STATUS_TOPIC}`);
     });
     mqttClient.subscribe(MQTT_FEEDING_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry Alimentación:', err.message);
-      else console.log(`Suscrito a ${MQTT_FEEDING_STATUS_TOPIC}`);
     });
-  });
-  mqttClient.on('reconnect', () => {
-    console.log('MQTT reconectando...');
-  });
-  mqttClient.on('offline', () => {
-    console.warn('MQTT cliente offline');
   });
   mqttClient.on('error', (e) => console.error('MQTT error:', e && e.message));
   mqttClient.on('close', () => {
@@ -428,11 +415,6 @@ try {
       handleStatusMessage(payload, false);
     } else if (topic === MQTT_FEEDING_STATUS_TOPIC) {
       handleStatusMessage(payload, true);
-    }
-  });
-  mqttClient.on('packetsend', (packet) => {
-    if (packet.cmd === 'publish' && packet.topic === MQTT_FEEDING_STATUS_TOPIC) {
-      console.log('MQTT feeding status packet enviado:', packet);
     }
   });
 } catch (e) {

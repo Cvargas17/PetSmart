@@ -16,15 +16,14 @@ import utime
 import time
 import json
 import socket
-import umqtt.simple as mqtt
 
 # ============================================================
 # CONFIGURACIÓN FIJA (hardware)
 # ============================================================
 
 # WiFi
-WIFI_SSID     = "GalaxyA71"
-WIFI_PASSWORD = "Lanh4358"
+WIFI_SSID     = "TU_WIFI"
+WIFI_PASSWORD = "TU_CONTRASEÑA"
 
 # Pines
 SERVO_PIN    = 16
@@ -47,11 +46,6 @@ MARGEN_PESO = 5
 
 # Puerto servidor HTTP
 HTTP_PORT = 80
-
-# MQTT para reportar el estado de la Raspberry
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_STATUS_TOPIC = "alerta/status/feeding"
-ultimo_estado_mqtt = 0
 
 # ============================================================
 # CONFIGURACIÓN DINÁMICA (se actualiza desde la app)
@@ -175,22 +169,6 @@ def conectar_wifi():
             return False
     print(f"WiFi conectado: {wlan.ifconfig()[0]}")
     return True
-
-def reportar_estado_mqtt(retain=False):
-    global ultimo_estado_mqtt
-    try:
-        if not wlan.isconnected():
-            print("MQTT no se reporta: no hay WiFi")
-            return
-        import umqtt.simple as mqtt
-        client = mqtt.MQTTClient(b"pico_feeding", MQTT_BROKER)
-        client.connect()
-        client.publish(MQTT_STATUS_TOPIC, b"online", retain=retain)
-        client.disconnect()
-        ultimo_estado_mqtt = utime.time()
-        print("Estado MQTT reportado: online")
-    except Exception as e:
-        print(f"Error reportando estado MQTT: {e}")
 
 def sincronizar_ntp():
     try:
@@ -387,7 +365,6 @@ servo_parar()
 
 if conectar_wifi():
     sincronizar_ntp()
-    reportar_estado_mqtt(retain=True)
 
 servidor = iniciar_servidor()
 
@@ -418,9 +395,6 @@ while True:
                 conectar_wifi()
                 sincronizar_ntp()
             ultimo_ntp = utime.time()
-
-        if utime.time() - ultimo_estado_mqtt > 10:
-            reportar_estado_mqtt(retain=True)
 
         time.sleep_ms(500)
 
