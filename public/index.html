@@ -153,6 +153,72 @@
     </tbody>
   </table>
 </section>
+
+<section class="panel">
+  <h2>Dispensador de Agua</h2>
+  <div class="connection-status">
+    <span id="water-status-dot" class="status-dot"></span>
+    <span id="water-status-text">Cargando...</span>
+  </div>
+  <div class="row">
+    <strong>Tanque:</strong> <span id="water-tanque">---</span>
+  </div>
+  <div class="row">
+    <strong>Bebedero:</strong> <span id="water-bebedero">---</span>
+  </div>
+  <div class="row">
+    <strong>Bomba:</strong> <span id="water-bomba">---</span>
+  </div>
+  <div class="row">
+    <strong>Última alerta:</strong> <span id="water-alerta">---</span>
+  </div>
+  <div class="row">
+    <strong>Hora:</strong> <span id="water-time">---</span>
+  </div>
+  <div class="actions">
+    <button id="refresh-water-btn" class="secondary">Refrescar</button>
+  </div>
+</section>
+<div class="row">
+  <label>Modo de operación</label>
+  <select id="water-mode-select">
+    <option value="automatico">Automático (por nivel)</option>
+    <option value="horario">Programado (por horarios)</option>
+  </select>
+  <button id="water-mode-save-btn" type="button" class="secondary">Guardar modo</button>
+</div>
+
+<section class="panel">
+  <h3>Historial del Dispensador</h3>
+  <table id="water-history-table">
+    <thead>
+      <tr><th>Fecha/Hora</th><th>Tanque</th><th>Bebedero</th><th>Bomba</th><th>Alerta</th></tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="5" class="empty">Cargando historial...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h3>Gestión de Horarios</h3>
+  <div class="row">
+    <label>Agregar horario (HH:MM)</label>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <input id="water-schedule-input" type="time" style="width:150px;" />
+      <button id="water-schedule-add-btn" type="button" class="primary">Agregar</button>
+    </div>
+  </div>
+  <table id="water-schedules-table">
+    <thead>
+      <tr><th>Hora</th><th>Activo</th><th>Acciones</th></tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="3" class="empty">Cargando horarios...</td></tr>
+    </tbody>
+  </table>
+</section>
+
 <section class="panel">
   <h2>Sistema de Recompensas</h2>
 

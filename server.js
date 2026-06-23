@@ -29,18 +29,256 @@ app.use(session({
 function requireAuth(req, res, next) {
   if (req.session?.authenticated) return next();
   if (req.path === '/login.html' || req.path === '/api/login') return next();
-  // Excluir endpoints del sensor de la autenticación
-const publicApiPaths = ['/api/sensor/motion', '/api/sensor/state', '/api/sensor/history', '/api/sensor/notify-setting'];
-// Verificar si la ruta es de la API y si NO está en las públicas
-if (req.path.startsWith('/api/')) {
-    if (!publicApiPaths.includes(req.path)) {
-        return res.status(401).json({ error: 'No autenticado' });
-    }
-    // Si está en públicas, no hacer nada y continuar
-}
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'No autenticado' });
+  }
   if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
   next();
 }
+
+const DB_PATH = path.join(__dirname, 'db.sqlite');
+const dbExists = fs.existsSync(DB_PATH);
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) {
+    console.error('No se pudo abrir la base de datos:', err.message);
+    process.exit(1);
+  }
+});
+
+// ===== DISPENSADOR DE AGUA - TABLA DE EVENTOS =====
+db.run(`
+  CREATE TABLE IF NOT EXISTS water_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tanque INTEGER,
+    bebedero INTEGER,
+    bomba INTEGER,
+    alerta TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla water_events:', err.message);
+  else console.log('✅ Tabla water_events lista');
+});
+
+// ===== DISPENSADOR DE AGUA =====
+app.post('/api/water/dispenser', (req, res) => {
+  const { tanque, bebedero, bomba, alerta } = req.body;
+  db.run(
+  `INSERT INTO water_events (tanque, bebedero, bomba, alerta, created_at) VALUES (?, ?, ?, ?, datetime('now', 'localtime'))`,
+  [tanque, bebedero, bomba, alerta || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (alerta === 'tanque_vacio') {
+        sendTelegramMessage(`🚨 ALERTA: Tanque de agua vacío\nHora: ${new Date().toLocaleString()}`)
+          .catch(e => console.error('Error enviando Telegram:', e.message));
+      }
+      if (alerta === 'atascamiento') {
+  sendTelegramMessage(`🚨 ALERTA: Posible atascamiento en el dispensador de agua\nEl bebedero no se está llenando.\nHora: ${new Date().toLocaleString()}`)
+    .catch(e => console.error('Error enviando Telegram:', e.message));
+      }
+      if (alerta === 'no_se_lleno') {
+  sendTelegramMessage(`⚠️ El bebedero no se llenó durante el horario programado\nVerifica que el dispensador tenga agua.\nHora: ${new Date().toLocaleString()}`)
+    .catch(e => console.error('Error enviando Telegram:', e.message));
+      }
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.get('/api/water/state', (req, res) => {
+  db.get(
+    `SELECT tanque, bebedero, bomba, alerta, created_at FROM water_events ORDER BY created_at DESC LIMIT 1`,
+    [],
+    (err, row) => {
+      if (err) {
+        console.error('Error en /api/water/state:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(row || { tanque: 0, bebedero: 0, bomba: 0, alerta: '' });
+    }
+  );
+});
+
+// ===== DISPENSADOR DE AGUA - HORARIOS =====
+db.run(`
+  CREATE TABLE IF NOT EXISTS water_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hora TEXT NOT NULL,
+    activo INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla water_schedules:', err.message);
+});
+
+// ===== DISPENSADOR DE AGUA - HISTORIAL =====
+
+app.get('/api/water/history', (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  db.all(
+    `SELECT id, tanque, bebedero, bomba, alerta, created_at FROM water_events ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+// ===== DISPENSADOR DE AGUA - HORARIOS =====
+
+// Obtener todos los horarios
+app.get('/api/water/schedules', (req, res) => {
+  db.all('SELECT * FROM water_schedules ORDER BY hora ASC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Agregar horario
+app.post('/api/water/schedules', (req, res) => {
+  const { hora, activo } = req.body;
+  // Validar formato HH:MM
+  if (!hora || !/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(hora)) {
+    return res.status(400).json({ error: 'Formato de hora inválido (HH:MM)' });
+  }
+  db.run(
+    `INSERT INTO water_schedules (hora, activo) VALUES (?, ?)`,
+    [hora, activo !== undefined ? (activo ? 1 : 0) : 1],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+// Eliminar horario
+app.delete('/api/water/schedules/:id', (req, res) => {
+  db.run('DELETE FROM water_schedules WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ changes: this.changes });
+  });
+});
+
+// Activar/desactivar horario
+app.patch('/api/water/schedules/:id/toggle', (req, res) => {
+  db.run(
+    'UPDATE water_schedules SET activo = NOT activo WHERE id = ?',
+    [req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ changes: this.changes });
+    }
+  );
+});
+
+
+// ===== DISPENSADOR DE AGUA - MODO =====
+
+// Tabla para guardar el modo
+db.run(`
+  CREATE TABLE IF NOT EXISTS water_mode (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    modo TEXT DEFAULT 'automatico',
+    updated_at TEXT
+  )
+`, (err) => {
+  if (err) console.error('Error creando tabla water_mode:', err.message);
+  else {
+    db.run(`INSERT OR IGNORE INTO water_mode (id, modo, updated_at) VALUES (1, 'automatico', CURRENT_TIMESTAMP)`);
+  }
+});
+
+// Obtener modo actual
+app.get('/api/water/mode', (req, res) => {
+  db.get('SELECT modo FROM water_mode WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ modo: row ? row.modo : 'automatico' });
+  });
+});
+
+// Guardar modo
+app.put('/api/water/mode', (req, res) => {
+  const { modo } = req.body;
+  if (!modo || !['automatico', 'horario'].includes(modo)) {
+    return res.status(400).json({ error: 'Modo inválido. Usa "automatico" o "horario".' });
+  }
+  db.run(
+    `UPDATE water_mode SET modo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+    [modo],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+
+// ===== SENSOR DE MOVIMIENTO =====
+app.get('/api/sensor/state', (req, res) => {
+  db.get(
+    `SELECT estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT 1`,
+    [],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || { estado: 'sin_datos', valor: 0, alerta: 0 });
+    }
+  );
+});
+
+app.get('/api/sensor/history', (req, res) => {
+  const limit = req.query.limit || 20;
+  db.all(
+    `SELECT id, estado, valor, alerta, created_at FROM motion_events ORDER BY created_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+app.get('/api/sensor/notify-setting', (req, res) => {
+  db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ enabled: row ? row.notify_enabled === 1 : true });
+  });
+});
+
+app.post('/api/sensor/notify-setting', (req, res) => {
+  const { enabled } = req.body;
+  db.run(
+    `UPDATE sensor_settings SET notify_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+    [enabled ? 1 : 0],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/sensor/motion', (req, res) => {
+  const { estado, valor, alerta } = req.body;
+  if (!estado) {
+    return res.status(400).json({ error: 'estado es obligatorio' });
+  }
+  db.run(
+    `INSERT INTO motion_events (estado, valor, alerta) VALUES (?, ?, ?)`,
+    [estado, valor || 0, alerta ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (alerta) {
+        db.get('SELECT notify_enabled FROM sensor_settings WHERE id = 1', [], (err, row) => {
+          if (!err && row && row.notify_enabled === 1) {
+            sendTelegramMessage(`🚨 ALERTA DE MOVIMIENTO\nEstado: ${estado}\nValor: ${valor}\nHora: ${new Date().toLocaleString()}`)
+              .catch(e => console.error('Error enviando Telegram:', e.message));
+          }
+        });
+      }
+      res.json({ id: this.lastID });
+    }
+  );
+});
 
 app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
@@ -83,14 +321,6 @@ app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-const DB_PATH = path.join(__dirname, 'db.sqlite');
-const dbExists = fs.existsSync(DB_PATH);
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('No se pudo abrir la base de datos:', err.message);
-    process.exit(1);
-  }
-});
 
 if (!dbExists) {
   db.run(`
@@ -1100,6 +1330,7 @@ app.delete('/api/gate/schedules/:id', (req, res) => {
     res.json({ changes: this.changes });
   });
 });
+
 
 // ===== SENSOR DE MOVIMIENTO ENDPOINTS =====
 

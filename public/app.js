@@ -1233,6 +1233,269 @@ setInterval(() => {
   //loadRewardStatus();
 }, 5000);
 
+// ===== DISPENSADOR DE AGUA =====
+
+async function loadWaterState() {
+  try {
+    const res = await fetch('/api/water/state');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    const dot = document.getElementById('water-status-dot');
+    const statusText = document.getElementById('water-status-text');
+    const tanqueSpan = document.getElementById('water-tanque');
+    const bebederoSpan = document.getElementById('water-bebedero');
+    const bombaSpan = document.getElementById('water-bomba');
+    const alertaSpan = document.getElementById('water-alerta');
+    const timeSpan = document.getElementById('water-time');
+    
+    if (!dot || !statusText) return;
+    
+    // Estado general
+    if (data.alerta === 'tanque_vacio') {
+      dot.className = 'status-dot disconnected';
+      statusText.textContent = '⚠️ ALERTA: Tanque vacío';
+    } else if (data.bomba === 1) {
+      dot.className = 'status-dot connected';
+      statusText.textContent = '🔄 Llenando bebedero...';
+    } else if (data.bebedero === 1) {
+      dot.className = 'status-dot connected';
+      statusText.textContent = '✅ Bebedero lleno';
+    } else {
+      dot.className = 'status-dot demo';
+      statusText.textContent = 'Sin datos';
+    }
+    
+    if (tanqueSpan) tanqueSpan.textContent = data.tanque === 1 ? '💧 Con agua' : '⚠️ Vacío';
+    if (bebederoSpan) bebederoSpan.textContent = data.bebedero === 1 ? '💧 Con agua' : '⚠️ Vacío';
+    if (bombaSpan) bombaSpan.textContent = data.bomba === 1 ? '🔄 Encendida' : '⏸️ Apagada';
+    if (alertaSpan) alertaSpan.textContent = data.alerta || 'Ninguna';
+    if (timeSpan) timeSpan.textContent = data.created_at ? new Date(data.created_at).toLocaleString() : '---';
+  } catch (e) {
+    console.error('Error cargando estado del dispensador:', e);
+  }
+}
+
+async function loadWaterHistory() {
+  try {
+    const res = await fetch('/api/water/history?limit=20');
+    if (!res.ok) return;
+    const events = await res.json();
+    
+    const tbody = document.querySelector('#water-history-table tbody');
+    if (!tbody) return;
+    
+    if (!events.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">No hay eventos registrados</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    events.forEach(ev => {
+      const row = document.createElement('tr');
+      const fecha = new Date(ev.created_at).toLocaleString();
+      const tanque = ev.tanque === 1 ? '💧 Con agua' : '⚠️ Vacío';
+      const bebedero = ev.bebedero === 1 ? '💧 Con agua' : '⚠️ Vacío';
+      const bomba = ev.bomba === 1 ? '🔄 ON' : '⏸️ OFF';
+      const alerta = ev.alerta || 'Ninguna';
+      
+      row.innerHTML = `
+        <td>${fecha}</td>
+        <td>${tanque}</td>
+        <td>${bebedero}</td>
+        <td>${bomba}</td>
+        <td>${alerta}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (e) {
+    console.error('Error cargando historial del dispensador:', e);
+  }
+}
+
+// Botón refrescar
+const refreshWaterBtn = document.getElementById('refresh-water-btn');
+if (refreshWaterBtn) {
+  refreshWaterBtn.addEventListener('click', () => {
+    loadWaterState();
+    loadWaterHistory();
+  });
+}
+
+// Inicializar
+setTimeout(() => {
+  loadWaterState();
+  loadWaterHistory();
+}, 500);
+
+setInterval(() => {
+  loadWaterState();
+}, 5000);
+
+// ===== GESTIÓN DE HORARIOS - DISPENSADOR =====
+
+async function loadWaterSchedules() {
+  try {
+    const res = await fetch('/api/water/schedules');
+    if (!res.ok) return;
+    const schedules = await res.json();
+    
+    const tbody = document.querySelector('#water-schedules-table tbody');
+    if (!tbody) return;
+    
+    if (!schedules.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">No hay horarios configurados</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    schedules.forEach(s => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${s.hora}</td>
+        <td>${s.activo === 1 ? '✅ Activo' : '❌ Inactivo'}</td>
+        <td class="actions-cell">
+          <button class="small" data-id="${s.id}" data-action="toggle-water-schedule">
+            ${s.activo === 1 ? 'Desactivar' : 'Activar'}
+          </button>
+          <button class="small danger" data-id="${s.id}" data-action="delete-water-schedule">Eliminar</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (e) {
+    console.error('Error cargando horarios:', e);
+  }
+}
+
+async function addWaterSchedule() {
+  const input = document.getElementById('water-schedule-input');
+  if (!input) return;
+  
+  const hora = input.value;
+  if (!hora) {
+    showAlert('Selecciona una hora válida.', 'error');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/water/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hora, activo: 1 })
+    });
+    
+    if (res.ok) {
+      showAlert(`Horario ${hora} agregado.`);
+      input.value = '';
+      loadWaterSchedules();
+    } else {
+      const data = await res.json();
+      showAlert(data.error || 'Error agregando horario.', 'error');
+    }
+  } catch (e) {
+    showAlert('Error de conexión.', 'error');
+  }
+}
+
+async function toggleWaterSchedule(id) {
+  try {
+    const res = await fetch(`/api/water/schedules/${id}/toggle`, { method: 'PATCH' });
+    if (res.ok) {
+      showAlert('Horario actualizado.');
+      loadWaterSchedules();
+    } else {
+      const data = await res.json();
+      showAlert(data.error || 'Error actualizando horario.', 'error');
+    }
+  } catch (e) {
+    showAlert('Error de conexión.', 'error');
+  }
+}
+
+async function deleteWaterSchedule(id) {
+  if (!confirm('¿Eliminar este horario?')) return;
+  
+  try {
+    const res = await fetch(`/api/water/schedules/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      showAlert('Horario eliminado.');
+      loadWaterSchedules();
+    } else {
+      const data = await res.json();
+      showAlert(data.error || 'Error eliminando horario.', 'error');
+    }
+  } catch (e) {
+    showAlert('Error de conexión.', 'error');
+  }
+}
+
+// Event listeners para horarios de agua
+document.getElementById('water-schedule-add-btn')?.addEventListener('click', addWaterSchedule);
+
+document.querySelector('#water-schedules-table tbody')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  
+  const id = Number(btn.dataset.id);
+  const action = btn.dataset.action;
+  
+  if (action === 'toggle-water-schedule') {
+    toggleWaterSchedule(id);
+  } else if (action === 'delete-water-schedule') {
+    deleteWaterSchedule(id);
+  }
+});
+
+// Inicializar horarios
+setTimeout(() => {
+  loadWaterSchedules();
+}, 800);
+
+// ===== MODO DE OPERACIÓN - DISPENSADOR =====
+
+async function loadWaterMode() {
+  try {
+    const res = await fetch('/api/water/mode');
+    if (!res.ok) return;
+    const data = await res.json();
+    const select = document.getElementById('water-mode-select');
+    if (select) select.value = data.modo || 'automatico';
+  } catch (e) {
+    console.error('Error cargando modo:', e);
+  }
+}
+
+async function saveWaterMode() {
+  const select = document.getElementById('water-mode-select');
+  if (!select) return;
+  
+  const modo = select.value;
+  try {
+    const res = await fetch('/api/water/mode', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo })
+    });
+    
+    if (res.ok) {
+      showAlert(`Modo cambiado a: ${modo === 'automatico' ? 'Automático' : 'Programado'}`);
+      // La Pico W consultará el nuevo modo en la próxima actualización
+    } else {
+      const data = await res.json();
+      showAlert(data.error || 'Error guardando modo.', 'error');
+    }
+  } catch (e) {
+    showAlert('Error de conexión.', 'error');
+  }
+}
+
+document.getElementById('water-mode-save-btn')?.addEventListener('click', saveWaterMode);
+
+// Cargar modo al iniciar
+setTimeout(() => {
+  loadWaterMode();
+}, 900);
 
 //Reward device system functions
 async function loadRewardStatus() {
