@@ -459,6 +459,7 @@ let tempState = {
   threshold: 30.0,
   updatedAt: null
 };
+let lastTempSavedAt = 0;
 
 // Tabla configuración temperatura
 db.run(`
@@ -959,6 +960,21 @@ function handleRewardSerialMessage(line) {
 
   try {
     const data = JSON.parse(msg);
+
+    // Datos de temperatura del Arduino
+    if (data.temp !== undefined) {
+      tempState.temp = data.temp;
+      tempState.fan  = data.fan;
+      tempState.updatedAt = new Date().toISOString();
+      const now = Date.now();
+      if (now - lastTempSavedAt >= 60000) {
+        lastTempSavedAt = now;
+        db.run(
+          `INSERT INTO temp_readings (temp, fan, threshold) VALUES (?, ?, ?)`,
+          [data.temp, data.fan ? 1 : 0, tempState.threshold]
+        );
+      }
+    }
 
     // Mensajes del sistema de recompensas
     if (data.correctGuesses !== undefined) {

@@ -1707,6 +1707,10 @@ setInterval(() => {
   loadTempState();
 }, 5000);
 
+setInterval(() => {
+  loadTempHistory();
+}, 60000);
+
 async function saveRewardConfig() {
   try {
     const payload = {
