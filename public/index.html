@@ -435,6 +435,9 @@
       </div>
 
       <div class="actions">
+        <button id="feeding-add-schedule-button" type="button">
+          Agregar Horario
+        </button>
         <button id="feeding-save-config-button" type="button" class="secondary" disabled>
           Guardar Configuración
         </button>
@@ -452,7 +455,10 @@
     </section>
 
     <section class="panel">
-      <h3>Historial de Alimentación</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+        <h3 style="margin:0;">Historial de Alimentación</h3>
+        <button id="feeding-clear-history-button" type="button" class="secondary">Limpiar historial</button>
+      </div>
       <table id="feeding-history-table">
         <thead>
           <tr><th>Fecha/Hora</th><th>Dispensado (g)</th><th>Comido (g)</th><th>Tipo</th></tr>

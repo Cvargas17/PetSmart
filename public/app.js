@@ -219,13 +219,17 @@ const feedingRefreshButton = document.getElementById('feeding-refresh-button');
 const feedingConfigPortion = document.getElementById('feeding-config-portion');
 const feedingConfigAlertHours = document.getElementById('feeding-config-alert-hours');
 const feedingScheduleTime = document.getElementById('feeding-schedule-time');
+const feedingAddScheduleButton = document.getElementById('feeding-add-schedule-button');
 const feedingSaveConfigButton = document.getElementById('feeding-save-config-button');
+const feedingClearHistoryButton = document.getElementById('feeding-clear-history-button');
 const feedingSchedulesTableBody = document.querySelector('#feeding-schedules-table tbody');
 const feedingHistoryTableBody = document.querySelector('#feeding-history-table tbody');
 
 let selectedProductId = null;
 let feedingConnected = false;
 let feedingSchedules = [];
+let feedingSchedulesDirty = false;
+let feedingConfigDirty = false;
 
 async function fetchProducts() {
   const response = await fetch('/api/products');
@@ -895,7 +899,7 @@ async function loadFeedingConnection() {
     } else {
       feedingStatusDot.className = 'status-dot disconnected';
       feedingStatusText.textContent = 'No conectada (esperando conexión)';
-      feedingDispenseButton.disabled = true;
+      feedingDispenseButton.disabled = false;
       feedingRefreshButton.disabled = true;
       feedingSaveConfigButton.disabled = true;
     }
@@ -904,7 +908,7 @@ async function loadFeedingConnection() {
     feedingConnected = false;
     feedingStatusDot.className = 'status-dot disconnected';
     feedingStatusText.textContent = 'Error al verificar conexión';
-    feedingDispenseButton.disabled = true;
+    feedingDispenseButton.disabled = false;
     feedingRefreshButton.disabled = true;
     feedingSaveConfigButton.disabled = true;
   }
@@ -916,15 +920,19 @@ async function loadFeedingStatus() {
     if (!res.ok) return;
     const data = await res.json();
 
-    feedingCurrentWeight.textContent = data.currentWeight || '0';
+    feedingCurrentWeight.textContent = data.currentWeight ?? '0';
     feedingLastDispense.textContent = data.lastDispense ? new Date(data.lastDispense).toLocaleString() : '---';
-    feedingTotalDispensed.textContent = data.totalFed || '0';
+    feedingTotalDispensed.textContent = data.totalFed ?? '0';
     
     if (data.config) {
-      feedingConfigPortion.value = data.config.portionWeight || 100;
-      feedingConfigAlertHours.value = data.config.hoursWithoutEating || 4;
-      feedingSchedules = data.config.schedules || [];
-      updateFeedingSchedulesTable();
+      if (!feedingConfigDirty) {
+        feedingConfigPortion.value = data.config.portionWeight || 100;
+        feedingConfigAlertHours.value = data.config.hoursWithoutEating || 4;
+      }
+      if (!feedingSchedulesDirty) {
+        feedingSchedules = data.config.schedules || [];
+        updateFeedingSchedulesTable();
+      }
     }
   } catch (e) {
     console.error('Error cargando estado de alimentación', e);
@@ -932,7 +940,7 @@ async function loadFeedingStatus() {
 }
 
 async function dispenseFeed() {
-  if (!feedingConnected) {
+  if (false && !feedingConnected) {
     showAlert('Sistema de alimentación no conectado', 'error');
     return;
   }
@@ -959,18 +967,13 @@ async function dispenseFeed() {
     setTimeout(() => {
       loadFeedingStatus();
       feedingDispenseButton.disabled = false;
-    }, 6000);
+    }, 2000);
   } catch (e) {
     showAlert('Error de conexión al servidor', 'error');
   }
 }
 
 async function saveFeedingConfig() {
-  if (!feedingConnected) {
-    showAlert('Sistema de alimentación no conectado', 'error');
-    return;
-  }
-
   const portionWeight = parseInt(feedingConfigPortion.value) || 100;
   const hoursWithoutEating = parseInt(feedingConfigAlertHours.value) || 4;
 
@@ -993,6 +996,8 @@ async function saveFeedingConfig() {
     }
 
     showAlert('Configuración guardada correctamente');
+    feedingConfigDirty = false;
+    feedingSchedulesDirty = false;
     loadFeedingStatus();
   } catch (e) {
     showAlert('Error de conexión al servidor', 'error');
@@ -1019,13 +1024,36 @@ async function loadFeedingHistory() {
       row.innerHTML = `
         <td>${fecha}</td>
         <td>${record.dispensed_grams || '0'}</td>
-        <td>${record.eaten_grams || '---'}</td>
+        <td>${record.eaten_grams ?? '0'}</td>
         <td>${tipo}</td>
       `;
       feedingHistoryTableBody.appendChild(row);
     });
   } catch (e) {
     console.error('Error cargando historial de alimentación', e);
+  }
+}
+
+async function clearFeedingHistory() {
+  if (!confirm('¿Deseas limpiar todo el historial de alimentación?')) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/feeding/history', {
+      method: 'DELETE'
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Error limpiando historial');
+    }
+
+    showAlert('Historial de alimentación limpiado');
+    await loadFeedingHistory();
+  } catch (e) {
+    console.error('Error limpiando historial de alimentación', e);
+    showAlert(e.message || 'Error limpiando historial', 'error');
   }
 }
 
@@ -1050,7 +1078,7 @@ function updateFeedingSchedulesTable() {
   });
 }
 
-function addFeedingSchedule() {
+async function addFeedingSchedule() {
   const timeInput = feedingScheduleTime.value;
   if (!timeInput) {
     showAlert('Por favor selecciona una hora', 'error');
@@ -1070,20 +1098,50 @@ function addFeedingSchedule() {
 
   feedingSchedules.push({ hora, minuto });
   feedingScheduleTime.value = '';
+  feedingSchedulesDirty = true;
   updateFeedingSchedulesTable();
   showAlert('Horario agregado');
+  await saveFeedingConfig();
 }
 
-function removeFeedingSchedule(index) {
+async function removeFeedingSchedule(index) {
   feedingSchedules.splice(index, 1);
+  feedingSchedulesDirty = true;
   updateFeedingSchedulesTable();
   showAlert('Horario eliminado');
+  await saveFeedingConfig();
 }
 
 // Event listeners para alimentación
 feedingDispenseButton?.addEventListener('click', dispenseFeed);
 feedingRefreshButton?.addEventListener('click', loadFeedingStatus);
+feedingAddScheduleButton?.addEventListener('click', addFeedingSchedule);
 feedingSaveConfigButton?.addEventListener('click', saveFeedingConfig);
+feedingClearHistoryButton?.addEventListener('click', clearFeedingHistory);
+
+feedingConfigPortion?.addEventListener('input', () => {
+  feedingConfigDirty = true;
+});
+
+feedingConfigPortion?.addEventListener('focus', () => {
+  feedingConfigDirty = true;
+});
+
+feedingConfigPortion?.addEventListener('blur', () => {
+  feedingConfigDirty = true;
+});
+
+feedingConfigAlertHours?.addEventListener('input', () => {
+  feedingConfigDirty = true;
+});
+
+feedingConfigAlertHours?.addEventListener('focus', () => {
+  feedingConfigDirty = true;
+});
+
+feedingConfigAlertHours?.addEventListener('blur', () => {
+  feedingConfigDirty = true;
+});
 
 // Llamar a loadFeedingConnection cada segundo
 async function refreshFeeding() {
@@ -1092,7 +1150,7 @@ async function refreshFeeding() {
 
 refreshFeeding();
 setInterval(refreshFeeding, 2000);
-setInterval(loadFeedingStatus, 3000);
+setInterval(loadFeedingStatus, 500);
 setInterval(loadFeedingHistory, 5000);
 
 // ===== SENSOR DE MOVIMIENTO =====
