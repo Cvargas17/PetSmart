@@ -46,7 +46,7 @@ TIEMPO_MOVIMIENTO_MS = 120  # tiempo de giro para abrir/cerrar sin pasarse
 
 # Margen para cerrar antes de llegar al objetivo (overshoot)
 MARGEN_PESO = 5
-UMBRAL_RELLENO_G = 20  # solo alertar si falta bastante alimento
+UMBRAL_RELLENO_G = 50  # solo alertar si falta bastante alimento
 
 # Puerto servidor HTTP
 HTTP_PORT = 80
@@ -146,6 +146,8 @@ def leer_peso():
     if lectura is None:
         return None
     peso = (lectura - TARA) / FACTOR - OFFSET_PESO
+    if peso < 0:
+        peso = 0.0
     if -FILTRO < peso < FILTRO:
         peso = 0.0
     return int(round(peso))
@@ -250,6 +252,7 @@ def publicar_evento_dispensado(gramos, scheduled=False):
         payload = json.dumps({
             "action": "dispensed",
             "grams": int(round(gramos)),
+            "grams_real": int(round(gramos)),
             "scheduled": bool(scheduled),
             "peso_actual": leer_peso()
         })
@@ -397,7 +400,7 @@ def dispensar(gramos_objetivo, scheduled=False):
     })
 
     if scheduled:
-        publicar_evento_dispensado(total_servido, scheduled=True)
+        publicar_evento_dispensado(gramos_objetivo, scheduled=True)
     publicar_telemetria()
 
     return True

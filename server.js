@@ -470,9 +470,9 @@ function handleFeedingTelemetry(payload) {
       if (typeof data.config.peso_porcion !== 'undefined') {
         feedingConfig.portionWeight = data.config.peso_porcion;
       }
-      if (typeof data.config.horas_sin_comer !== 'undefined') {
-        feedingConfig.hoursWithoutEating = data.config.horas_sin_comer;
-      }
+        if (typeof data.config.horas_sin_comer !== 'undefined') {
+          feedingConfig.hoursWithoutEating = data.config.horas_sin_comer;
+        }
       if (Array.isArray(data.config.horarios)) {
         feedingConfig.schedules = data.config.horarios;
       }
@@ -481,6 +481,7 @@ function handleFeedingTelemetry(payload) {
 
     if (typeof data.comido_actual !== 'undefined') {
       const eaten = Math.max(0, Math.round(Number(data.comido_actual) || 0));
+      if (!eaten) return;
       db.run(
         `UPDATE feeding_history
          SET eaten_grams = ?
@@ -509,7 +510,7 @@ function handleFeedingEvent(payload) {
     const action = String(data.action || '').toLowerCase();
 
     if (action === 'dispensed') {
-      const grams = Math.max(0, Math.round(Number(data.grams) || 0));
+      const grams = Math.max(0, Math.round(Number(data.grams) || Number(data.grams_real) || 0));
       const scheduled = data.scheduled ? 1 : 0;
       if (!grams) return;
       db.run(
@@ -535,6 +536,19 @@ function handleFeedingEvent(payload) {
     if (action === 'consumed') {
       const grams = Math.max(0, Math.round(Number(data.grams) || 0));
       if (!grams) return;
+      db.run(
+        `UPDATE feeding_history
+         SET eaten_grams = ?
+         WHERE id = (
+           SELECT id FROM feeding_history
+           ORDER BY created_at DESC
+           LIMIT 1
+         )`,
+        [grams],
+        (err) => {
+          if (err) console.error('Error guardando comido detectado:', err.message);
+        }
+      );
       sendTelegramMessage(
         `🐾 La mascota comió ${grams}g de alimento.`,
         { force: true }
@@ -568,11 +582,15 @@ function handleFeedingEvent(payload) {
 
 function updateTodayFeedingTotal() {
   return new Promise((resolve) => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+
     db.get(
       `SELECT COALESCE(SUM(dispensed_grams), 0) AS total
        FROM feeding_history
-       WHERE date(created_at) = date('now', 'localtime')`,
-      [],
+       WHERE created_at >= ? AND created_at <= ?`,
+      [start.toISOString(), now.toISOString()],
       (err, row) => {
         if (err) {
           console.error('Error calculando total diario de alimentación:', err.message);
@@ -1157,7 +1175,11 @@ app.post('/api/feeding/dispense', async (req, res) => {
       `INSERT INTO feeding_history (dispensed_grams, scheduled) VALUES (?, ?)`,
       [portionGrams, 0],
       (err) => {
-        if (err) console.error('Error guardando dispensación:', err.message);
+        if (err) {
+          console.error('Error guardando dispensación:', err.message);
+        } else {
+          feedingState.totalFed = Math.round(Number(feedingState.totalFed || 0) + portionGrams);
+        }
       }
     );
 
@@ -1166,6 +1188,11 @@ app.post('/api/feeding/dispense', async (req, res) => {
 
     feedingState.lastDispense = new Date().toISOString();
     feedingState.updatedAt = new Date().toISOString();
+
+    await sendTelegramMessage(
+      `🍽️ Se dispensaron ${portionGrams}g de alimento (manual).`,
+      { force: true }
+    ).catch((e) => console.error('Telegram dispensado manual:', e.message));
 
     res.json({
       status: 'dispensing',
