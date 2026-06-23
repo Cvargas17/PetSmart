@@ -335,6 +335,10 @@ const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
 const MQTT_TOPIC = process.env.MQTT_TOPIC || 'alerta';
 const MQTT_STATUS_TOPIC = process.env.MQTT_STATUS_TOPIC || 'alerta/status';
 const MQTT_FEEDING_STATUS_TOPIC = process.env.MQTT_FEEDING_STATUS_TOPIC || 'alerta/status/feeding';
+const MQTT_FEEDING_COMMAND_TOPIC = process.env.MQTT_FEEDING_COMMAND_TOPIC || 'alerta/feeding/command';
+const MQTT_FEEDING_TELEMETRY_TOPIC = process.env.MQTT_FEEDING_TELEMETRY_TOPIC || 'alerta/feeding/telemetry';
+const MQTT_FEEDING_CONFIG_TOPIC = process.env.MQTT_FEEDING_CONFIG_TOPIC || 'alerta/feeding/config';
+const MQTT_FEEDING_EVENT_TOPIC = process.env.MQTT_FEEDING_EVENT_TOPIC || 'alerta/feeding/event';
 const FEEDING_DEVICE_IP = process.env.FEEDING_DEVICE_IP || '';
 const FEEDING_DEVICE_PORT = Number(process.env.FEEDING_DEVICE_PORT || 80);
 let mqttClient = null;
@@ -394,38 +398,7 @@ async function fetchFeedingDevice(path, options = {}) {
 }
 
 async function refreshFeedingFromDevice() {
-  const baseUrl = getFeedingDeviceUrl();
-  if (!baseUrl) {
-    return;
-  }
-
-  try {
-    const data = await fetchFeedingDevice('/estado');
-    if (data && typeof data === 'object') {
-      if (typeof data.peso_actual !== 'undefined') {
-        feedingState.currentWeight = Number(data.peso_actual) || 0;
-      }
-      if (data.hora) {
-        feedingState.updatedAt = new Date().toISOString();
-      }
-      if (data.config) {
-        if (typeof data.config.peso_porcion !== 'undefined') {
-          feedingConfig.portionWeight = data.config.peso_porcion;
-        }
-        if (typeof data.config.horas_sin_comer !== 'undefined') {
-          feedingConfig.hoursWithoutEating = data.config.horas_sin_comer;
-        }
-        if (Array.isArray(data.config.horarios)) {
-          feedingConfig.schedules = data.config.horarios;
-        }
-        feedingConfig.updatedAt = new Date().toISOString();
-      }
-      updateFeedingStatus(true);
-      feedingState.updatedAt = new Date().toISOString();
-    }
-  } catch (e) {
-    console.warn('No se pudo actualizar estado del sistema de alimentación:', e.message);
-  }
+  return;
 }
 
 function handleStatusMessage(payload, isFeedingStatus = false) {
@@ -479,6 +452,140 @@ function handleStatusMessage(payload, isFeedingStatus = false) {
   }
 }
 
+function handleFeedingTelemetry(payload) {
+  try {
+    const message = payload.toString().trim();
+    if (!message) return;
+
+    const data = JSON.parse(message);
+    if (typeof data.peso_actual !== 'undefined') {
+      const weight = Number(data.peso_actual);
+      if (Number.isFinite(weight)) {
+        feedingState.currentWeight = Math.round(weight);
+        feedingState.updatedAt = new Date().toISOString();
+      }
+    }
+
+    if (data.config && typeof data.config === 'object') {
+      if (typeof data.config.peso_porcion !== 'undefined') {
+        feedingConfig.portionWeight = data.config.peso_porcion;
+      }
+      if (typeof data.config.horas_sin_comer !== 'undefined') {
+        feedingConfig.hoursWithoutEating = data.config.horas_sin_comer;
+      }
+      if (Array.isArray(data.config.horarios)) {
+        feedingConfig.schedules = data.config.horarios;
+      }
+      feedingConfig.updatedAt = new Date().toISOString();
+    }
+
+    if (typeof data.comido_actual !== 'undefined') {
+      const eaten = Math.max(0, Math.round(Number(data.comido_actual) || 0));
+      db.run(
+        `UPDATE feeding_history
+         SET eaten_grams = ?
+         WHERE id = (
+           SELECT id FROM feeding_history
+           ORDER BY created_at DESC
+           LIMIT 1
+         )`,
+        [eaten],
+        (err) => {
+          if (err) console.error('Error actualizando comido actual:', err.message);
+        }
+      );
+    }
+  } catch (e) {
+    console.warn('No se pudo parsear telemetría de alimentación:', e.message);
+  }
+}
+
+function handleFeedingEvent(payload) {
+  try {
+    const message = payload.toString().trim();
+    if (!message) return;
+
+    const data = JSON.parse(message);
+    const action = String(data.action || '').toLowerCase();
+
+    if (action === 'dispensed') {
+      const grams = Math.max(0, Math.round(Number(data.grams) || 0));
+      const scheduled = data.scheduled ? 1 : 0;
+      if (!grams) return;
+      db.run(
+        `INSERT INTO feeding_history (dispensed_grams, scheduled) VALUES (?, ?)`,
+        [grams, scheduled],
+        (err) => {
+          if (err) {
+            console.error('Error guardando evento de alimentación MQTT:', err.message);
+            return;
+          }
+          if (typeof feedingState.totalFed === 'number') {
+            feedingState.totalFed += grams;
+          }
+        }
+      );
+      sendTelegramMessage(
+        `🍽️ Se dispensaron ${grams}g de alimento (${scheduled ? 'programado' : 'manual'}).`,
+        { force: true }
+      ).catch((e) => console.error('Telegram alimentación:', e.message));
+      return;
+    }
+
+    if (action === 'consumed') {
+      const grams = Math.max(0, Math.round(Number(data.grams) || 0));
+      if (!grams) return;
+      sendTelegramMessage(
+        `🐾 La mascota comió ${grams}g de alimento.`,
+        { force: true }
+      ).catch((e) => console.error('Telegram consumo:', e.message));
+      return;
+    }
+
+    if (action === 'no_eat') {
+      const hours = Number(data.horas_sin_comer) || feedingConfig.hoursWithoutEating || 4;
+      sendTelegramMessage(
+        `⚠️ Alerta: la mascota no ha comido en ${hours} horas.`,
+        { force: true }
+      ).catch((e) => console.error('Telegram no comer:', e.message));
+      return;
+    }
+
+    if (action === 'refill') {
+      const current = Number(data.peso_actual);
+      const target = Number(data.objetivo);
+      const currentText = Number.isFinite(current) ? `${Math.round(current)}g` : 'sin lectura';
+      const targetText = Number.isFinite(target) ? `${Math.round(target)}g` : 'objetivo desconocido';
+      sendTelegramMessage(
+        `📦 Alerta: el dispensador no alcanzó la porción esperada.\nPeso actual: ${currentText}\nMeta: ${targetText}\nRevisa y rellena el alimento.`,
+        { force: true }
+      ).catch((e) => console.error('Telegram relleno:', e.message));
+    }
+  } catch (e) {
+    console.warn('No se pudo procesar evento MQTT de alimentación:', e.message);
+  }
+}
+
+function updateTodayFeedingTotal() {
+  return new Promise((resolve) => {
+    db.get(
+      `SELECT COALESCE(SUM(dispensed_grams), 0) AS total
+       FROM feeding_history
+       WHERE date(created_at) = date('now', 'localtime')`,
+      [],
+      (err, row) => {
+        if (err) {
+          console.error('Error calculando total diario de alimentación:', err.message);
+          feedingState.totalFed = 0;
+          return resolve(0);
+        }
+        feedingState.totalFed = Math.round(Number(row?.total) || 0);
+        resolve(feedingState.totalFed);
+      }
+    );
+  });
+}
+
 try {
   mqttClient = mqtt.connect(MQTT_BROKER, {
     clientId: `petSmart_server_${Math.random().toString(16).slice(2,8)}`,
@@ -495,6 +602,14 @@ try {
     mqttClient.subscribe(MQTT_FEEDING_STATUS_TOPIC, { qos: 1 }, (err) => {
       if (err) console.error('Error suscribiendo al estado Raspberry Alimentación:', err.message);
       else console.log(`Suscrito a ${MQTT_FEEDING_STATUS_TOPIC}`);
+    });
+    mqttClient.subscribe(MQTT_FEEDING_TELEMETRY_TOPIC, { qos: 1 }, (err) => {
+      if (err) console.error('Error suscribiendo a telemetría de alimentación:', err.message);
+      else console.log(`Suscrito a ${MQTT_FEEDING_TELEMETRY_TOPIC}`);
+    });
+    mqttClient.subscribe(MQTT_FEEDING_EVENT_TOPIC, { qos: 1 }, (err) => {
+      if (err) console.error('Error suscribiendo a eventos de alimentación:', err.message);
+      else console.log(`Suscrito a ${MQTT_FEEDING_EVENT_TOPIC}`);
     });
   });
   mqttClient.on('reconnect', () => {
@@ -513,6 +628,10 @@ try {
       handleStatusMessage(payload, false);
     } else if (topic === MQTT_FEEDING_STATUS_TOPIC) {
       handleStatusMessage(payload, true);
+    } else if (topic === MQTT_FEEDING_TELEMETRY_TOPIC) {
+      handleFeedingTelemetry(payload);
+    } else if (topic === MQTT_FEEDING_EVENT_TOPIC) {
+      handleFeedingEvent(payload);
     }
   });
   mqttClient.on('packetsend', (packet) => {
@@ -1011,12 +1130,7 @@ app.get('/api/feeding/connection', async (req, res) => {
 });
 
 app.get('/api/feeding/status', async (req, res) => {
-  try {
-    await refreshFeedingFromDevice();
-  } catch (e) {
-    // Ignorar errores de polling y responder con el último estado local
-  }
-
+  await updateTodayFeedingTotal();
   res.json({
     currentWeight: feedingState.currentWeight,
     lastDispense: feedingState.lastDispense,
@@ -1031,14 +1145,9 @@ app.post('/api/feeding/dispense', async (req, res) => {
   const { grams } = req.body;
   const portionGrams = Number(grams || feedingConfig.portionWeight || 100);
 
-  if (!feedingConnected && !getFeedingDeviceUrl()) {
-    return res.status(503).json({ error: 'Sistema de alimentación no conectado o sin IP configurada' });
-  }
-
   try {
-    const baseUrl = getFeedingDeviceUrl();
-    if (!baseUrl) {
-      return res.status(503).json({ error: 'FEEDING_DEVICE_IP no configurada' });
+    if (!mqttClient || !mqttClient.connected) {
+      return res.status(503).json({ error: 'MQTT no conectado. No se puede enviar la orden al dispensador.' });
     }
 
     feedingState.isDispensing = true;
@@ -1052,22 +1161,16 @@ app.post('/api/feeding/dispense', async (req, res) => {
       }
     );
 
-    const response = await fetch(`${baseUrl}/dispensar?gramos=${portionGrams}`, {
-      method: 'POST'
-    });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.error || data.message || 'Error enviando la orden al dispensador');
-    }
+    const payload = JSON.stringify({ action: 'dispense', grams: portionGrams });
+    mqttClient.publish(MQTT_FEEDING_COMMAND_TOPIC, payload, { qos: 0, retain: false });
 
     feedingState.lastDispense = new Date().toISOString();
     feedingState.updatedAt = new Date().toISOString();
 
     res.json({
-      status: 'dispensando',
+      status: 'dispensing',
       grams: portionGrams,
-      message: data.message || 'Dispensación iniciada'
+      message: 'Orden enviada por MQTT al dispensador'
     });
   } catch (e) {
     feedingState.isDispensing = false;
@@ -1078,6 +1181,7 @@ app.post('/api/feeding/dispense', async (req, res) => {
 
 app.post('/api/feeding/config', async (req, res) => {
   const { portionWeight, hoursWithoutEating, schedules } = req.body;
+  const previousSchedules = Array.isArray(feedingConfig.schedules) ? JSON.stringify(feedingConfig.schedules) : '[]';
 
   if (typeof portionWeight === 'number' && portionWeight > 0) {
     feedingConfig.portionWeight = portionWeight;
@@ -1094,17 +1198,17 @@ app.post('/api/feeding/config', async (req, res) => {
   feedingConfig.updatedAt = new Date().toISOString();
 
   try {
-    const baseUrl = getFeedingDeviceUrl();
-    if (baseUrl) {
-      await fetch(`${baseUrl}/configurar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.publish(
+        MQTT_FEEDING_CONFIG_TOPIC,
+        JSON.stringify({
+          action: 'config',
           peso_porcion: feedingConfig.portionWeight,
           horas_sin_comer: feedingConfig.hoursWithoutEating,
           horarios: feedingConfig.schedules
-        })
-      });
+        }),
+        { qos: 0, retain: true }
+      );
     }
 
     db.run(
@@ -1115,6 +1219,15 @@ app.post('/api/feeding/config', async (req, res) => {
           console.error('Error guardando configuración de alimentación:', err.message);
           return res.status(500).json({ error: 'Error guardando configuración' });
         }
+
+        const newSchedules = JSON.stringify(feedingConfig.schedules);
+        if (newSchedules !== previousSchedules) {
+          sendTelegramMessage(
+            `⏰ Se actualizó la programación de alimentación.\nHorarios: ${feedingConfig.schedules.length}`,
+            { force: true }
+          ).catch((tgErr) => console.error('Telegram horario alimentación:', tgErr.message));
+        }
+
         res.json({ 
           status: 'ok',
           config: feedingConfig,
@@ -1136,7 +1249,11 @@ app.get('/api/feeding/history', (req, res) => {
     [limit],
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
+      const normalizedRows = rows.map((row) => ({
+        ...row,
+        created_at: row.created_at ? new Date(`${row.created_at.replace(' ', 'T')}Z`).toISOString() : null
+      }));
+      res.json(normalizedRows);
     }
   );
 });
